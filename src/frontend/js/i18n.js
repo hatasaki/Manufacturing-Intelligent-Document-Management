@@ -1,0 +1,133 @@
+const translations = {
+    en: {
+        // Page title
+        pageTitle: "Manufacturing Intelligent Document Management",
+        // Login
+        loginSubtitle: "Sign in with your Microsoft account to continue",
+        loginButton: "Sign in with Microsoft",
+        // Header
+        channelPlaceholder: "Select a Teams Channel...",
+        // File list
+        filesHeader: "Files",
+        noFilesPlaceholder: "No files in this channel",
+        selectChannelPlaceholder: "Select a Teams channel to view files",
+        selectFilePlaceholder: "Select a file to view details",
+        // Drop zone
+        dropZoneText: "Drag & drop PDF files here to upload",
+        // File details
+        labelCreated: "Created",
+        labelCreatedBy: "Created By",
+        labelLastModified: "Last Modified",
+        labelLastModifiedBy: "Last Modified By",
+        // Questions
+        followUpQuestionsHeader: "Follow-up Questions",
+        followUpQuestionsAndAnswers: "Follow-up Questions & Answers",
+        noQuestionsYet: "No follow-up questions generated yet",
+        badgeAnswered: "Answered",
+        badgePending: "Not Available",
+        // Modal chat
+        questionProgress: "Question {current} of {total}",
+        answerPlaceholder: "Type your answer...",
+        btnSkip: "Skip",
+        btnSend: "Send",
+        labelYou: "You",
+        labelAI: "AI",
+        analyzingAnswer: "Analyzing your answer...",
+        allQuestionsCompleted: "All Questions Completed",
+        btnClose: "Close",
+        // Upload
+        uploadingMessage: "Uploading and analyzing file...",
+        uploadSuccess: "File uploaded successfully.",
+        // Toast / error messages
+        authInitFailed: "Authentication initialization failed. Check console for details.",
+        loginFailed: "Login failed. Please try again.",
+        loadChannelsFailed: "Failed to load channels. Please try again.",
+        loadFilesFailed: "Failed to load files: {message}",
+        loadDetailsFailed: "Failed to load file details.",
+        noAnalysisData: "No analysis data available for this file",
+        selectChannelFirst: "Please select a Teams channel first.",
+        onlyPdfSupported: "Only PDF files are supported.",
+        uploadFailed: "Upload failed: {message}",
+        thankYouComplete: "Thank you for providing these valuable insights. Your expertise will help ensure the quality and completeness of this document.",
+        thankYouDetailed: "Thank you for your detailed responses. Your input has been recorded.",
+        answerAccepted: "Answer accepted. Moving to next question.",
+        answerAnalysisUnavailable: "Answer analysis temporarily unavailable. Your answer has been saved.",
+        // Date format locale
+        dateLocale: "en-US",
+    },
+    ja: {
+        // Page title
+        pageTitle: "製造業インテリジェント文書管理",
+        // Login
+        loginSubtitle: "Microsoftアカウントでサインインしてください",
+        loginButton: "Microsoftでサインイン",
+        // Header
+        channelPlaceholder: "Teamsチャンネルを選択...",
+        // File list
+        filesHeader: "ファイル",
+        noFilesPlaceholder: "このチャンネルにはファイルがありません",
+        selectChannelPlaceholder: "Teamsチャンネルを選択してファイルを表示",
+        selectFilePlaceholder: "ファイルを選択して詳細を表示",
+        // Drop zone
+        dropZoneText: "PDFファイルをここにドラッグ＆ドロップしてアップロード",
+        // File details
+        labelCreated: "作成日",
+        labelCreatedBy: "作成者",
+        labelLastModified: "最終更新日",
+        labelLastModifiedBy: "最終更新者",
+        // Questions
+        followUpQuestionsHeader: "フォローアップ質問",
+        followUpQuestionsAndAnswers: "フォローアップ質問と回答",
+        noQuestionsYet: "フォローアップ質問はまだ生成されていません",
+        badgeAnswered: "回答済み",
+        badgePending: "未回答",
+        // Modal chat
+        questionProgress: "質問 {current} / {total}",
+        answerPlaceholder: "回答を入力...",
+        btnSkip: "スキップ",
+        btnSend: "送信",
+        labelYou: "あなた",
+        labelAI: "AI",
+        analyzingAnswer: "回答を分析中...",
+        allQuestionsCompleted: "すべての質問が完了しました",
+        btnClose: "閉じる",
+        // Upload
+        uploadingMessage: "ファイルをアップロードして分析中...",
+        uploadSuccess: "ファイルが正常にアップロードされました。",
+        // Toast / error messages
+        authInitFailed: "認証の初期化に失敗しました。コンソールで詳細を確認してください。",
+        loginFailed: "ログインに失敗しました。もう一度お試しください。",
+        loadChannelsFailed: "チャンネルの読み込みに失敗しました。もう一度お試しください。",
+        loadFilesFailed: "ファイルの読み込みに失敗しました: {message}",
+        loadDetailsFailed: "ファイル詳細の読み込みに失敗しました。",
+        noAnalysisData: "このファイルの分析データはありません",
+        selectChannelFirst: "先にTeamsチャンネルを選択してください。",
+        onlyPdfSupported: "PDFファイルのみサポートされています。",
+        uploadFailed: "アップロードに失敗しました: {message}",
+        thankYouComplete: "貴重なご意見をいただきありがとうございます。あなたの専門知識がこの文書の品質と完全性の確保に役立ちます。",
+        thankYouDetailed: "詳細なご回答をいただきありがとうございます。ご回答は記録されました。",
+        answerAccepted: "回答が承認されました。次の質問に進みます。",
+        answerAnalysisUnavailable: "回答の分析が一時的に利用できません。回答は保存されました。",
+        // Date format locale
+        dateLocale: "ja-JP",
+    },
+};
+
+let currentLang = localStorage.getItem("app-lang") || "en";
+
+export function getLang() {
+    return currentLang;
+}
+
+export function setLang(lang) {
+    currentLang = lang;
+    localStorage.setItem("app-lang", lang);
+}
+
+export function t(key, params = {}) {
+    let text = translations[currentLang]?.[key] || translations.en[key] || key;
+    for (const [k, v] of Object.entries(params)) {
+        text = text.replace(`{${k}}`, v);
+    }
+    return text;
+}

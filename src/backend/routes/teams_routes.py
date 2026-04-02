@@ -179,7 +179,8 @@ def upload_file(team_id, channel_id):
         # 8. Generate follow-up questions
         try:
             extracted_text = analysis.get("extractedText", "")
-            questions = agent_service.generate_questions(extracted_text)
+            lang = request.form.get("lang", "en")
+            questions = agent_service.generate_questions(extracted_text, lang=lang)
             follow_up = []
             for q in questions:
                 follow_up.append({

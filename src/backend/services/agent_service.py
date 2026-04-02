@@ -18,18 +18,26 @@ def _get_project_client():
     )
 
 
-def generate_questions(analysis_text: str) -> list:
+def generate_questions(analysis_text: str, lang: str = "en") -> list:
     """Generate follow-up questions using the question-generator-agent."""
     def call_agent():
         project_client = _get_project_client()
         openai_client = project_client.get_openai_client()
         agent = project_client.agents.get(agent_name="question-generator-agent")
 
+        # Prepend language instruction when Japanese is requested
+        input_text = analysis_text
+        if lang == "ja":
+            input_text = (
+                "[INSTRUCTION: Generate all questions and perspectives in Japanese.]\n\n"
+                + analysis_text
+            )
+
         # Create a conversation and send analysis text as input
         conversation = openai_client.conversations.create()
         response = openai_client.responses.create(
             conversation=conversation.id,
-            input=analysis_text,
+            input=input_text,
             extra_body={"agent_reference": {"name": agent.name, "type": "agent_reference"}},
         )
 
@@ -44,14 +52,17 @@ def generate_questions(analysis_text: str) -> list:
     return retry_with_backoff(call_agent, max_retries=3, base_delay=1.0)
 
 
-def analyze_answer(question: str, answer: str) -> dict:
+def analyze_answer(question: str, answer: str, lang: str = "en") -> dict:
     """Analyze the sufficiency of an answer using the answer-analysis-agent."""
     def call_agent():
         project_client = _get_project_client()
         openai_client = project_client.get_openai_client()
         agent = project_client.agents.get(agent_name="answer-analysis-agent")
 
-        prompt = json.dumps({"question": question, "answer": answer})
+        payload = {"question": question, "answer": answer}
+        if lang == "ja":
+            payload["instruction"] = "Respond entirely in Japanese. Write all feedback in Japanese."
+        prompt = json.dumps(payload)
         response = openai_client.responses.create(
             input=prompt,
             extra_body={"agent_reference": {"name": agent.name, "type": "agent_reference"}},

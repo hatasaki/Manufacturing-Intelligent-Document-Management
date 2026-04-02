@@ -1,3 +1,5 @@
+import { t, getLang } from "./i18n.js";
+
 export function showToast(message, isError = false) {
     const container = document.getElementById("toast-container");
     const toast = document.createElement("div");
@@ -9,13 +11,13 @@ export function showToast(message, isError = false) {
 
 export function formatDate(dateStr) {
     if (!dateStr) return "—";
-    return new Date(dateStr).toLocaleDateString("en-US", {
+    return new Date(dateStr).toLocaleDateString(t("dateLocale"), {
         year: "numeric", month: "short", day: "numeric",
     });
 }
 
 export function renderChannels(channels, selectEl) {
-    selectEl.innerHTML = '<option value="">Select a Teams Channel...</option>';
+    selectEl.innerHTML = `<option value="">${escapeHtml(t("channelPlaceholder"))}</option>`;
     channels.forEach((ch) => {
         const opt = document.createElement("option");
         opt.value = JSON.stringify({ teamId: ch.teamId, channelId: ch.channelId });
@@ -28,7 +30,7 @@ export function renderChannels(channels, selectEl) {
 export function renderFileList(files, containerEl, onSelect) {
     containerEl.innerHTML = "";
     if (files.length === 0) {
-        containerEl.innerHTML = '<p class="placeholder-text">No files in this channel</p>';
+        containerEl.innerHTML = `<p class="placeholder-text">${escapeHtml(t("noFilesPlaceholder"))}</p>`;
         return;
     }
     files.forEach((f) => {
@@ -57,25 +59,25 @@ export function renderFileDetails(doc, detailsEl) {
             <div class="detail-filename">${escapeHtml(doc.fileName || "—")}</div>
             <div class="detail-meta">
                 <div class="detail-meta-item">
-                    <label>Created</label>
+                    <label>${escapeHtml(t("labelCreated"))}</label>
                     <span>${formatDate(doc.createdAt)}</span>
                 </div>
                 <div class="detail-meta-item">
-                    <label>Created By</label>
+                    <label>${escapeHtml(t("labelCreatedBy"))}</label>
                     <span>${escapeHtml(doc.createdBy || "—")}</span>
                 </div>
                 <div class="detail-meta-item">
-                    <label>Last Modified</label>
+                    <label>${escapeHtml(t("labelLastModified"))}</label>
                     <span>${formatDate(doc.lastModifiedAt)}</span>
                 </div>
                 <div class="detail-meta-item">
-                    <label>Last Modified By</label>
+                    <label>${escapeHtml(t("labelLastModifiedBy"))}</label>
                     <span>${escapeHtml(doc.lastModifiedBy || "—")}</span>
                 </div>
             </div>
         </div>
         <div class="questions-section">
-            <h3>Follow-up Questions & Answers</h3>
+            <h3>${escapeHtml(t("followUpQuestionsAndAnswers"))}</h3>
             ${renderQuestionsList(doc.followUpQuestions || [])}
         </div>
     `;
@@ -83,16 +85,16 @@ export function renderFileDetails(doc, detailsEl) {
 
 function renderQuestionsList(questions) {
     if (questions.length === 0) {
-        return '<p class="placeholder-text">No follow-up questions generated yet</p>';
+        return `<p class="placeholder-text">${escapeHtml(t("noQuestionsYet"))}</p>`;
     }
     return questions.map((q, i) => `
         <div class="question-item">
             <div class="question-text">Q${i + 1}: ${escapeHtml(q.question)}</div>
             <div class="question-answer">
                 ${q.status === "answered"
-                    ? `<span class="badge badge-answered">Answered</span>
+                    ? `<span class="badge badge-answered">${escapeHtml(t("badgeAnswered"))}</span>
                        ${renderConversationThread(q)}`
-                    : '<span class="badge badge-pending">Not Available</span>'
+                    : `<span class="badge badge-pending">${escapeHtml(t("badgePending"))}</span>`
                 }
             </div>
         </div>
@@ -107,7 +109,7 @@ function renderConversationThread(q) {
     return `<div class="conversation-thread">
         ${thread.map(msg => `
             <div class="thread-msg thread-msg-${msg.role === 'user' ? 'user' : 'ai'}">
-                <span class="thread-msg-label">${msg.role === 'user' ? escapeHtml(q.answeredBy || 'User') : 'AI'}</span>
+                <span class="thread-msg-label">${msg.role === 'user' ? escapeHtml(q.answeredBy || t("labelYou")) : t("labelAI")}</span>
                 <span class="thread-msg-text">${escapeHtml(msg.text)}</span>
             </div>
         `).join('')}
@@ -127,20 +129,20 @@ export function renderModalQuestion(question, index, total, onSubmit, onSkip) {
     body.innerHTML = `
         <div class="chat-thread">
             <div class="chat-header">
-                <span class="chat-progress">Question ${index + 1} of ${total}</span>
+                <span class="chat-progress">${escapeHtml(t("questionProgress", { current: index + 1, total: total }))}</span>
                 <span class="perspective-badge">${escapeHtml(question.perspective || "")}</span>
             </div>
             <div id="chat-messages" class="chat-messages">
                 <div class="chat-bubble chat-bubble-ai">
-                    <div class="chat-bubble-label">AI</div>
+                    <div class="chat-bubble-label">${escapeHtml(t("labelAI"))}</div>
                     <div class="chat-bubble-text">${escapeHtml(question.question)}</div>
                 </div>
             </div>
             <div class="chat-input-area">
-                <textarea id="answer-input" class="chat-input" placeholder="Type your answer..." rows="2"></textarea>
+                <textarea id="answer-input" class="chat-input" placeholder="${escapeHtml(t("answerPlaceholder"))}" rows="2"></textarea>
                 <div class="chat-actions">
-                    <button id="btn-skip-question" class="btn btn-secondary">Skip</button>
-                    <button id="btn-submit-answer" class="btn btn-primary">Send</button>
+                    <button id="btn-skip-question" class="btn btn-secondary">${escapeHtml(t("btnSkip"))}</button>
+                    <button id="btn-submit-answer" class="btn btn-primary">${escapeHtml(t("btnSend"))}</button>
                 </div>
             </div>
         </div>
@@ -166,7 +168,7 @@ export function appendUserMessage(text) {
     const messages = document.getElementById("chat-messages");
     const bubble = document.createElement("div");
     bubble.className = "chat-bubble chat-bubble-user";
-    bubble.innerHTML = `<div class="chat-bubble-label">You</div><div class="chat-bubble-text">${escapeHtml(text)}</div>`;
+    bubble.innerHTML = `<div class="chat-bubble-label">${escapeHtml(t("labelYou"))}</div><div class="chat-bubble-text">${escapeHtml(text)}</div>`;
     messages.appendChild(bubble);
     messages.scrollTop = messages.scrollHeight;
 }
@@ -175,7 +177,7 @@ export function appendAiMessage(text, type) {
     const messages = document.getElementById("chat-messages");
     const bubble = document.createElement("div");
     bubble.className = `chat-bubble chat-bubble-ai ${type === "insufficient" ? "chat-bubble-warn" : ""}`;
-    bubble.innerHTML = `<div class="chat-bubble-label">AI</div><div class="chat-bubble-text">${escapeHtml(text)}</div>`;
+    bubble.innerHTML = `<div class="chat-bubble-label">${escapeHtml(t("labelAI"))}</div><div class="chat-bubble-text">${escapeHtml(text)}</div>`;
     messages.appendChild(bubble);
     messages.scrollTop = messages.scrollHeight;
 }
@@ -185,7 +187,7 @@ export function appendAnalyzingIndicator() {
     const indicator = document.createElement("div");
     indicator.id = "analyzing-indicator";
     indicator.className = "chat-bubble chat-bubble-ai";
-    indicator.innerHTML = `<div class="chat-bubble-label">AI</div><div class="analyzing-indicator"><div class="spinner"></div> Analyzing your answer...</div>`;
+    indicator.innerHTML = `<div class="chat-bubble-label">${escapeHtml(t("labelAI"))}</div><div class="analyzing-indicator"><div class="spinner"></div> ${escapeHtml(t("analyzingAnswer"))}</div>`;
     messages.appendChild(indicator);
     messages.scrollTop = messages.scrollHeight;
 }
@@ -212,9 +214,9 @@ export function renderModalComplete(message) {
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                 <polyline points="22 4 12 14.01 9 11.01"/>
             </svg>
-            <p style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">All Questions Completed</p>
+            <p style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">${escapeHtml(t("allQuestionsCompleted"))}</p>
             <p style="color: var(--text-secondary); font-size: 14px;">${escapeHtml(message)}</p>
-            <button class="btn btn-primary" style="margin-top: 20px;" onclick="document.getElementById('question-modal').classList.add('hidden')">Close</button>
+            <button class="btn btn-primary" style="margin-top: 20px;" onclick="document.getElementById('question-modal').classList.add('hidden')">${escapeHtml(t("btnClose"))}</button>
         </div>
     `;
 }
@@ -235,3 +237,5 @@ function escapeHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+export { escapeHtml as escapeHtmlPublic };

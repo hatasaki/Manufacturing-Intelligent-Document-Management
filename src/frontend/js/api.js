@@ -1,5 +1,6 @@
 import { getAccessToken } from "./auth.js";
 import { API_BASE } from "./config.js";
+import { getLang } from "./i18n.js";
 
 async function apiRequest(url, options = {}) {
     const token = await getAccessToken();
@@ -34,6 +35,7 @@ export async function uploadFile(teamId, channelId, file) {
     const token = await getAccessToken();
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("lang", getLang());
 
     const response = await fetch(
         `${API_BASE}/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/files`,
@@ -59,7 +61,7 @@ export async function generateQuestions(docId, channelId) {
     return apiRequest(`/documents/${encodeURIComponent(docId)}/generate-questions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId }),
+        body: JSON.stringify({ channelId, lang: getLang() }),
     });
 }
 
@@ -69,7 +71,7 @@ export async function submitAnswer(docId, questionId, channelId, answer, answere
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ channelId, answer, answeredBy }),
+            body: JSON.stringify({ channelId, answer, answeredBy, lang: getLang() }),
         }
     );
 }

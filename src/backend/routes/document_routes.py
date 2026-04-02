@@ -79,7 +79,8 @@ def regenerate_questions(doc_id):
             return jsonify({"error": "No analysis available. Please re-upload the file."}), 400
 
         extracted_text = analysis.get("extractedText", "")
-        questions = agent_service.generate_questions(extracted_text)
+        lang = request.json.get("lang", "en") if request.json else "en"
+        questions = agent_service.generate_questions(extracted_text, lang=lang)
 
         now = datetime.now(timezone.utc)
 
@@ -130,6 +131,7 @@ def answer_question(doc_id, q_id):
     channel_id = data.get("channelId")
     answer_text = data.get("answer", "")
     answered_by = data.get("answeredBy", "")
+    lang = data.get("lang", "en")
 
     if not channel_id or not answer_text:
         return jsonify({"error": "channelId and answer are required"}), 400
@@ -191,7 +193,7 @@ def answer_question(doc_id, q_id):
         # Analyze the answer with the agent
         try:
             validation = agent_service.analyze_answer(
-                question_obj["question"], answer_text
+                question_obj["question"], answer_text, lang=lang
             )
             question_obj["agentValidation"] = validation.get("validation", "sufficient")
 

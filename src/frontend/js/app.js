@@ -1,6 +1,7 @@
 import { initAuth, login, getAccount } from "./auth.js";
 import * as api from "./api.js";
 import * as ui from "./ui.js";
+import { t, getLang, setLang } from "./i18n.js";
 
 let selectedTeamId = null;
 let selectedChannelId = null;
@@ -14,13 +15,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     } catch (err) {
         console.error("MSAL init error:", err);
-        ui.showToast("Authentication initialization failed. Check console for details.", true);
+        ui.showToast(t("authInitFailed"), true);
     }
 
     document.getElementById("btn-login").addEventListener("click", handleLogin);
     document.getElementById("channel-select").addEventListener("change", handleChannelChange);
     document.getElementById("btn-close-modal").addEventListener("click", ui.hideModal);
+    document.getElementById("btn-lang-toggle").addEventListener("click", handleLangToggle);
 
+    applyStaticTranslations();
     setupDropZone();
 });
 
@@ -29,7 +32,7 @@ async function handleLogin() {
         const account = await login();
         onLoggedIn(account);
     } catch (err) {
-        ui.showToast("Login failed. Please try again.", true);
+        ui.showToast(t("loginFailed"), true);
     }
 }
 
@@ -53,7 +56,7 @@ async function loadChannels() {
         const channels = await api.getChannels();
         ui.renderChannels(channels, document.getElementById("channel-select"));
     } catch (err) {
-        ui.showToast("Failed to load channels. Please try again.", true);
+        ui.showToast(t("loadChannelsFailed"), true);
     }
 }
 
@@ -67,7 +70,7 @@ async function handleChannelChange(e) {
 
     document.getElementById("drop-zone").classList.remove("hidden");
     document.getElementById("file-details").innerHTML =
-        '<p class="placeholder-text">Select a file to view details</p>';
+        `<p class="placeholder-text">${ui.escapeHtmlPublic(t("selectFilePlaceholder"))}</p>`;
 
     await loadFiles();
 }
@@ -79,7 +82,7 @@ async function loadFiles() {
         const files = await api.getChannelFiles(selectedTeamId, selectedChannelId);
         ui.renderFileList(files, document.getElementById("file-list"), handleFileSelect);
     } catch (err) {
-        ui.showToast(`Failed to load files: ${err.message}`, true);
+        ui.showToast(t("loadFilesFailed", { message: err.message }), true);
         console.error("loadFiles error:", err);
     }
 }
@@ -89,7 +92,7 @@ async function handleFileSelect(file) {
         document.getElementById("file-details").innerHTML = `
             <div class="detail-header">
                 <div class="detail-filename">${file.name}</div>
-                <p class="placeholder-text" style="margin-top:12px">No analysis data available for this file</p>
+                <p class="placeholder-text" style="margin-top:12px">${ui.escapeHtmlPublic(t("noAnalysisData"))}</p>
             </div>`;
         return;
     }
@@ -98,7 +101,7 @@ async function handleFileSelect(file) {
         const doc = await api.getDocument(file.docId, selectedChannelId);
         ui.renderFileDetails(doc, document.getElementById("file-details"));
     } catch (err) {
-        ui.showToast("Failed to load file details.", true);
+        ui.showToast(t("loadDetailsFailed"), true);
     }
 }
 
@@ -119,7 +122,7 @@ function setupDropZone() {
         dropZone.classList.remove("drag-over");
 
         if (!selectedTeamId || !selectedChannelId) {
-            ui.showToast("Please select a Teams channel first.", true);
+            ui.showToast(t("selectChannelFirst"), true);
             return;
         }
 
@@ -127,7 +130,7 @@ function setupDropZone() {
         const pdfFiles = files.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
 
         if (pdfFiles.length === 0) {
-            ui.showToast("Only PDF files are supported.", true);
+            ui.showToast(t("onlyPdfSupported"), true);
             return;
         }
 
@@ -138,7 +141,7 @@ function setupDropZone() {
 }
 
 async function handleUpload(file) {
-    ui.renderUploadProgress("Uploading and analyzing file...");
+    ui.renderUploadProgress(t("uploadingMessage"));
 
     try {
         const result = await api.uploadFile(selectedTeamId, selectedChannelId, file);
@@ -156,11 +159,11 @@ async function handleUpload(file) {
             startQuestionFlow(result.docId, result.followUpQuestions);
         } else {
             ui.hideModal();
-            ui.showToast("File uploaded successfully.");
+            ui.showToast(t("uploadSuccess"));
         }
     } catch (err) {
         ui.hideModal();
-        ui.showToast(`Upload failed: ${err.message}`, true);
+        ui.showToast(t("uploadFailed", { message: err.message }), true);
     }
 }
 
@@ -170,7 +173,7 @@ function startQuestionFlow(docId, questions) {
     function showNext() {
         if (currentIndex >= questions.length) {
             ui.renderModalComplete(
-                "Thank you for providing these valuable insights. Your expertise will help ensure the quality and completeness of this document."
+                t("thankYouComplete")
             );
             loadFiles();
             return;
@@ -204,8 +207,8 @@ function startQuestionFlow(docId, questions) {
                         document.getElementById("answer-input").focus();
                     } else {
                         const msg = roundCount >= MAX_ROUNDS && result.validation === "insufficient"
-                            ? "Thank you for your detailed responses. Your input has been recorded."
-                            : (result.feedback || "Answer accepted. Moving to next question.");
+                            ? t("thankYouDetailed")
+                            : (result.feedback || t("answerAccepted"));
                         ui.appendAiMessage(msg, "sufficient");
                         setTimeout(() => {
                             currentIndex++;
@@ -214,7 +217,7 @@ function startQuestionFlow(docId, questions) {
                     }
                 } catch (err) {
                     ui.removeAnalyzingIndicator();
-                    ui.appendAiMessage("Answer analysis temporarily unavailable. Your answer has been saved.", "insufficient");
+                    ui.appendAiMessage(t("answerAnalysisUnavailable"), "insufficient");
                     setTimeout(() => {
                         currentIndex++;
                         showNext();
@@ -230,4 +233,54 @@ function startQuestionFlow(docId, questions) {
     }
 
     showNext();
+}
+
+function handleLangToggle() {
+    const newLang = getLang() === "en" ? "ja" : "en";
+    setLang(newLang);
+    applyStaticTranslations();
+}
+
+function applyStaticTranslations() {
+    const lang = getLang();
+    // Toggle button: highlight active language
+    const enLabel = document.getElementById("lang-en");
+    const jaLabel = document.getElementById("lang-ja");
+    if (enLabel) enLabel.classList.toggle("lang-active", lang === "en");
+    if (jaLabel) jaLabel.classList.toggle("lang-active", lang === "ja");
+
+    // Login screen (keep title in English)
+    const loginP = document.querySelector(".login-card p");
+    if (loginP) loginP.textContent = t("loginSubtitle");
+    const loginBtn = document.getElementById("btn-login");
+    if (loginBtn) loginBtn.textContent = t("loginButton");
+
+    // Channel select placeholder
+    const channelSelect = document.getElementById("channel-select");
+    if (channelSelect && channelSelect.options.length > 0) {
+        channelSelect.options[0].textContent = t("channelPlaceholder");
+    }
+
+    // Files header
+    const filesH2 = document.querySelector(".pane-left h2");
+    if (filesH2) filesH2.textContent = t("filesHeader");
+
+    // Placeholder texts (only if showing default placeholder)
+    const fileListPlaceholder = document.querySelector("#file-list .placeholder-text");
+    if (fileListPlaceholder) {
+        fileListPlaceholder.textContent = t("selectChannelPlaceholder");
+    }
+
+    const detailsPlaceholder = document.querySelector("#file-details .placeholder-text");
+    if (detailsPlaceholder) {
+        detailsPlaceholder.textContent = t("selectFilePlaceholder");
+    }
+
+    // Drop zone text
+    const dropZoneP = document.querySelector(".drop-zone-content p");
+    if (dropZoneP) dropZoneP.textContent = t("dropZoneText");
+
+    // Modal header
+    const modalH2 = document.querySelector(".modal-header h2");
+    if (modalH2) modalH2.textContent = t("followUpQuestionsHeader");
 }
