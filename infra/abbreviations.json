@@ -1,0 +1,6 @@
+{
+  "resourcesResourceGroups": "rg-",
+  "documentDBDatabaseAccounts": "cosmos-",
+  "webServerFarms": "plan-",
+  "webSitesAppService": "app-"
+}

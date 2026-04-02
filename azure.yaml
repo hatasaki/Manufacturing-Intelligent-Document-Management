@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: manufacturing-smart-doc-mgmt
+metadata:
+  template: manufacturing-smart-doc-mgmt
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "=== Building and deploying backend ==="
+        $rgName = (azd env get-value AZURE_RESOURCE_GROUP)
+        $appName = (azd env get-value SERVICE_BACKEND_NAME)
+        $clientId = (azd env get-value ENTRA_CLIENT_ID)
+        $tenantId = (azd env get-value ENTRA_TENANT_ID)
+
+        # Copy frontend into backend/static
+        if (Test-Path src/backend/static) { Remove-Item -Recurse -Force src/backend/static }
+        Copy-Item -Recurse src/frontend src/backend/static
+
+        # Substitute Entra ID values into frontend config
+        $configPath = "src/backend/static/js/config.js"
+        $configContent = Get-Content $configPath -Raw
+        $configContent = $configContent.Replace("__ENTRA_CLIENT_ID__", $clientId)
+        $configContent = $configContent.Replace("__ENTRA_TENANT_ID__", $tenantId)
+        Set-Content $configPath -Value $configContent
+        Write-Host "Injected Entra config: clientId=$clientId, tenantId=$tenantId"
+
+        # Create deployment ZIP (source code only — Oryx builds on server)
+        $zipPath = [System.IO.Path]::GetTempPath() + "backend-deploy.zip"
+        if (Test-Path $zipPath) { Remove-Item $zipPath }
+
+        Push-Location src/backend
+        $items = Get-ChildItem -Path . -Exclude '.venv','__pycache__','.python_packages','*.pyc'
+        Compress-Archive -Path $items -DestinationPath $zipPath -Force
+        Pop-Location
+
+        $sizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
+        Write-Host "Package created: $zipPath ($sizeMB MB)"
+
+        # Deploy via zipdeploy API (AAD auth, triggers Oryx build)
+        # --timeout 900 = wait up to 15 min for build + site startup
+        az webapp deployment source config-zip --resource-group $rgName --name $appName --src $zipPath --timeout 900
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "Deployment command returned non-zero exit code, checking site status..."
+          $state = (az webapp show --resource-group $rgName --name $appName --query "state" -o tsv)
+          if ($state -eq "Running") {
+            Write-Host "Site is running - deployment succeeded despite timeout"
+          } else {
+            Write-Host "Site state: $state - checking logs..."
+            throw "Deployment failed - site is not running"
+          }
+        }
+        Write-Host "=== Deployment complete ==="
+
+        # Create Cosmos DB database and container via ARM (control plane)
+        Write-Host "=== Creating Cosmos DB database and container ==="
+        $cosmosName = (azd env get-value COSMOS_DB_ACCOUNT_NAME)
+        az cosmosdb sql database create --account-name $cosmosName --resource-group $rgName --name "manufacturing-docs" 2>$null
+        az cosmosdb sql container create --account-name $cosmosName --resource-group $rgName --database-name "manufacturing-docs" --name "documents" --partition-key-path "/channelId" 2>$null
+        Write-Host "=== Cosmos DB setup complete ==="
+
+        # Configure Content Understanding default model deployments
+        Write-Host "=== Configuring Content Understanding defaults ==="
+        $cuEndpoint = (azd env get-value AI_FOUNDRY_ENDPOINT)
+        $token = (az account get-access-token --resource "https://cognitiveservices.azure.com" --query accessToken -o tsv)
+        $cuBody = '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}'
+        $cuUrl = "${cuEndpoint}contentunderstanding/defaults?api-version=2025-11-01"
+        az rest --method PATCH --url $cuUrl --headers "Content-Type=application/json" "Authorization=Bearer $token" --body $cuBody 2>&1 | Out-Null
+        Write-Host "=== Content Understanding defaults configured ==="
+
+        # Create Foundry Agent Service agents
+        Write-Host "=== Creating Foundry agents ==="
+        $env:AI_FOUNDRY_ENDPOINT = (azd env get-value AI_FOUNDRY_ENDPOINT)
+        $env:AI_FOUNDRY_PROJECT_NAME = (azd env get-value AI_FOUNDRY_PROJECT_NAME)
+        pip install azure-ai-projects azure-identity --quiet 2>$null
+        python scripts/create_agents.py
+        Write-Host "=== Agent setup complete ==="
+    posix:
+      shell: sh
+      run: |
+        echo "=== Building and deploying backend ==="
+        RG_NAME=$(azd env get-value AZURE_RESOURCE_GROUP)
+        APP_NAME=$(azd env get-value SERVICE_BACKEND_NAME)
+        CLIENT_ID=$(azd env get-value ENTRA_CLIENT_ID)
+        TENANT_ID=$(azd env get-value ENTRA_TENANT_ID)
+
+        rm -rf src/backend/static
+        cp -r src/frontend src/backend/static
+
+        # Substitute Entra ID values into frontend config
+        sed -i "s/__ENTRA_CLIENT_ID__/$CLIENT_ID/g" src/backend/static/js/config.js
+        sed -i "s/__ENTRA_TENANT_ID__/$TENANT_ID/g" src/backend/static/js/config.js
+
+        ZIP_PATH="/tmp/backend-deploy.zip"
+        cd src/backend
+        zip -r "$ZIP_PATH" . -x '*.pyc' '__pycache__/*' '.venv/*' '.python_packages/*'
+        cd ../..
+
+        az webapp deployment source config-zip --resource-group "$RG_NAME" --name "$APP_NAME" --src "$ZIP_PATH" --timeout 900 || true
+        echo "=== Deployment complete ==="
+services:
+  backend:
+    project: ./src/backend
+    host: appservice
+    language: python
+    hooks:
+      predeploy:
+        windows:
+          shell: pwsh
+          run: |
+            $clientId = (azd env get-value ENTRA_CLIENT_ID)
+            $tenantId = (azd env get-value ENTRA_TENANT_ID)
+            if (Test-Path static) { Remove-Item -Recurse -Force static }
+            Copy-Item -Recurse ../frontend static
+            $configPath = "static/js/config.js"
+            (Get-Content $configPath -Raw).Replace("__ENTRA_CLIENT_ID__", $clientId).Replace("__ENTRA_TENANT_ID__", $tenantId) | Set-Content $configPath
+        posix:
+          shell: sh
+          run: |
+            CLIENT_ID=$(azd env get-value ENTRA_CLIENT_ID)
+            TENANT_ID=$(azd env get-value ENTRA_TENANT_ID)
+            rm -rf static
+            cp -r ../frontend static
+            sed -i "s/__ENTRA_CLIENT_ID__/$CLIENT_ID/g" static/js/config.js
+            sed -i "s/__ENTRA_TENANT_ID__/$TENANT_ID/g" static/js/config.js

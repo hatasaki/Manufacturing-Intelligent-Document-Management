@@ -1,0 +1,75 @@
+import { getAccessToken } from "./auth.js";
+import { API_BASE } from "./config.js";
+
+async function apiRequest(url, options = {}) {
+    const token = await getAccessToken();
+    const headers = {
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+    };
+
+    const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+
+    if (!response.ok && response.status !== 207) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed: ${response.status}`);
+    }
+
+    return response.json();
+}
+
+export async function getMe() {
+    return apiRequest("/me");
+}
+
+export async function getChannels() {
+    return apiRequest("/teams/channels");
+}
+
+export async function getChannelFiles(teamId, channelId) {
+    return apiRequest(`/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/files`);
+}
+
+export async function uploadFile(teamId, channelId, file) {
+    const token = await getAccessToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(
+        `${API_BASE}/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/files`,
+        {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+        }
+    );
+
+    const data = await response.json();
+    if (!response.ok && response.status !== 201 && response.status !== 207) {
+        throw new Error(data.error || "Upload failed");
+    }
+    return data;
+}
+
+export async function getDocument(docId, channelId) {
+    return apiRequest(`/documents/${encodeURIComponent(docId)}?channelId=${encodeURIComponent(channelId)}`);
+}
+
+export async function generateQuestions(docId, channelId) {
+    return apiRequest(`/documents/${encodeURIComponent(docId)}/generate-questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+    });
+}
+
+export async function submitAnswer(docId, questionId, channelId, answer, answeredBy) {
+    return apiRequest(
+        `/documents/${encodeURIComponent(docId)}/questions/${encodeURIComponent(questionId)}/answer`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId, answer, answeredBy }),
+        }
+    );
+}
