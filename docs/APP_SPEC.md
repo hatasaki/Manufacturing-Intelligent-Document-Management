@@ -33,6 +33,8 @@
 | ライブラリ | 用途 |
 |-----------|------|
 | `@azure/msal-browser` | MSAL.js v2.35.0 (SPA 認証、CDN 配信) |
+| `marked` | Markdown → HTML パーサー (CDN 配信) |
+| `DOMPurify` | HTML サニタイズ (XSS 防止、CDN 配信) |
 
 ## ディレクトリ構成
 
@@ -102,7 +104,9 @@
 │  │                    │  │  最終更新日: 2026-03-15                   │
 │  │                    │  │  最終更新者: Jane Doe                     │
 │  │  ┌──────────────┐  │  │                                          │
-│  │  │ドラッグ&ドロップ│  │  │  フォローアップ質問・回答一覧:            │
+│  │  │ドラッグ&ドロップ│  │  │  [📄 ファイルの分析結果] ボタン           │
+│  │  │  でアップロード │  │  │                                          │
+│  │  └──────────────┘  │  │  フォローアップ質問・回答一覧:            │
 │  │  │  でアップロード │  │  │  ┌──────────────────────────────────┐  │
 │  │  └──────────────┘  │  │  │ Q1: ... │ 会話スレッド全文表示     │  │
 │  └────────────────────┘  │  │ Q2: ... │ 会話スレッド全文表示     │  │
@@ -139,6 +143,14 @@
 - ユーザーメッセージ: 青い左ボーダー (`.thread-msg-user`)
 - AI フィードバック: 灰色の左ボーダー (`.thread-msg-ai`)
 - 未回答の質問は「Not Available」バッジで表示
+
+### ファイル分析結果モーダル
+
+- ファイル詳細のメタデータとフォローアップ質問の間に「ファイルの分析結果」ボタンを配置
+- クリックするとモーダルウィンドウを表示し、Cosmos DB に保存された Content Understanding 分析結果を閲覧可能
+- **表示項目**: モデルバージョン、分析日時、テーブル情報、キー・バリューペア、抽出テキスト (Markdown レンダリング)
+- 抽出テキストは `marked.js` で Markdown → HTML 変換し、`DOMPurify` でサニタイズして表示
+- 分析データが存在しない場合はボタンを無効化
 
 ---
 
@@ -187,24 +199,30 @@
   - 小ファイル (< 4MB): `PUT /drives/{driveId}/items/{folderId}:/{fileName}:/content`
   - 大ファイル (≥ 4MB): Upload Session API
 - **独自ドキュメント識別子**: `doc-{YYYYMMDD}-{UUID4先頭8桁}` 形式 (例: `doc-20260330-a1b2c3d4`)
-- **処理フロー**:
+- **非同期処理フロー**:
   1. SharePoint にアップロード
   2. ドキュメント識別子を生成・SharePoint カスタム列に付与
-  3. Content Understanding で分析 (非同期 LRO)
-  4. 分析結果を Cosmos DB に保存
-  5. Foundry Agent で約 5 問の質問生成
-  6. 質問リストを Cosmos DB に保存
-  7. チャットスレッド形式のフォローアップ質問ウィンドウを表示
+  3. Cosmos DB に `processingStatus: "analyzing"` で初期ドキュメント保存
+  4. HTTP 201 をフロントエンドに即座に返却
+  5. **バックグラウンドスレッド** で Content Understanding 分析を実行
+  6. 分析結果を Cosmos DB に保存、`processingStatus: "generating_questions"` に更新
+  7. Foundry Agent で約 5 問の質問生成
+  8. 質問リストを Cosmos DB に保存、`processingStatus: "completed"` に更新
+- **フロントエンドポーリング**: アップロード後、フロントエンドは 5 秒間隔で `GET /api/documents/{doc_id}` をポーリングし、`processingStatus` が `completed` または `error` になるまで待機 (最大 10 分)
+- **進捗表示**: モーダルに処理段階に応じたメッセージを表示 (「アップロード中…」→「分析中…」→「質問生成中…」)
 - **再アップロード**: 既存の質問・回答は `questionHistory` に移動、新規質問を生成
-- **部分的完了**: 各ステップの障害時にそれまでの結果を保持し、HTTP 207 でエラー詳細を返却
+- **部分的完了**: 各ステップの障害時にそれまでの結果を保持し、`processingError` フィールドにエラー詳細を記録
 
 ### 5. Content Understanding 分析
 
 - **サービス**: Azure Content Understanding in Foundry Tools (Azure AI Service)
 - **Python SDK**: `azure-ai-contentunderstanding` v1.0.1 (API version `2025-11-01`)
-- **ベースアナライザー**: `prebuilt-document`
+- **アナライザー**: `prebuilt-documentSearch` (RAG 用プリビルトアナライザー)
+  - 図の検出・説明生成 (チャート: chart.js、ダイアグラム: mermaid.js 構造化出力)
+  - テーブル、キー・バリューペア、段落の抽出
+  - ドキュメント全体のサマリー生成
 - **入力**: `AnalysisInput(data=file_content, mime_type="application/pdf")`
-- **出力**: `AnalysisResult` — `result.contents[0].markdown` で抽出テキスト取得
+- **出力**: `AnalysisResult` — `result.contents[0].markdown` で抽出テキスト取得 (図の説明がマークダウン内に埋め込み)
 - **前提設定**: Foundry リソースに Content Understanding デフォルト設定が必要:
   ```
   PATCH {endpoint}/contentunderstanding/defaults?api-version=2025-11-01
@@ -231,6 +249,8 @@
   questions = json.loads(response.output_text)
   ```
 - **エージェント instructions**: 製造業ドメインの暗黙知を引き出す約 5 問の質問を生成。4 つの視点 (前提条件、論理ギャップ、経験知、見落としリスク) に基づく
+- **図 ID → ページ番号変換**: エージェントへの入力テキスト内の図 ID (`fig-001` 等) をすべて `(page N)` に置換し、ページ番号で参照可能にする
+- **参照ルール**: エージェント instructions で図 ID・図番号の参照を明示的に禁止。質問ではページ番号を使って参照する
 - **出力形式**: `[{"questionId": "q-001", "question": "...", "perspective": "..."}]`
 - **エージェント作成**: `azd up` の postprovision hook で `scripts/create_agents.py` が自動作成
 
@@ -257,7 +277,7 @@
 - **データ取得元**:
   - **ファイルメタデータ**: Graph API からリアルタイム取得 (`driveItemPath` を使用)
   - **分析結果・質問・回答**: Cosmos DB から取得
-- **表示項目**: ファイル識別子、ファイル名、作成日/作成者、最終更新日/更新者、フォローアップ質問一覧 (会話スレッド全文)
+- **表示項目**: ファイル識別子、ファイル名、作成日/作成者、最終更新日/更新者、分析結果ボタン、フォローアップ質問一覧 (会話スレッド全文)
 
 ---
 
@@ -280,10 +300,10 @@
 
   // === Content Understanding 分析結果 ===
   "analysis": {
-    "modelVersion": "prebuilt-v1",
+    "modelVersion": "prebuilt-documentSearch-v1",
     "analyzedAt": "2026-03-15T14:35:00Z",
-    "extractedText": "... (抽出テキスト markdown) ...",
-    "figures": [{ "figureId": "fig-001", "description": "..." }],
+    "extractedText": "... (抽出テキスト markdown、図の説明埋め込み) ...",
+    "figures": [{ "figureId": "fig-001", "description": "...", "boundingBox": { "page": 3 } }],
     "tables": [],
     "keyValuePairs": []
   },
@@ -313,6 +333,10 @@
   "questionHistory": [],
   "relatedDocuments": [],
 
+  // === 非同期処理ステータス ===
+  "processingStatus": "completed",  // "analyzing" | "generating_questions" | "completed" | "error"
+  "processingError": null,           // エラー発生時のメッセージ
+
   // === メタ情報 ===
   "version": 1,
   "createdInDbAt": "2026-03-15T14:35:00Z",
@@ -328,7 +352,7 @@
 |---------|------|------|
 | `GET` | `/api/teams/channels` | ユーザーが参加するチーム・チャネル階層一覧取得 |
 | `GET` | `/api/teams/{team_id}/channels/{channel_id}/files` | チャネルの SharePoint ファイル一覧取得 |
-| `POST` | `/api/teams/{team_id}/channels/{channel_id}/files` | ファイルアップロード (PDF のみ) |
+| `POST` | `/api/teams/{team_id}/channels/{channel_id}/files` | ファイルアップロード (PDF のみ、非同期処理) |
 | `GET` | `/api/documents/{doc_id}?channelId={channelId}` | ドキュメント詳細取得 (Cosmos DB + Graph API) |
 | `POST` | `/api/documents/{doc_id}/generate-questions` | フォローアップ質問生成 |
 | `POST` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 質問への回答送信・分析 (最大 3 往復) |
@@ -369,7 +393,7 @@
 - **認証**: Microsoft Entra ID (フロントエンド: MSAL.js v2.35.0 PKCE、バックエンド: MSAL Python OBO)
 - **認可**: Graph API Delegated 権限スコープに基づくアクセス制御
 - **対応ファイル形式**: PDF のみ
-- **パフォーマンス**: 同期 API レスポンス < 500ms。Content Understanding 分析・Foundry Agent 呼出しは非同期 LRO
+- **パフォーマンス**: 同期 API レスポンス < 500ms。Content Understanding 分析・Foundry Agent 呼出しはバックグラウンドスレッドで非同期実行 (フロントエンドは 5 秒間隔ポーリング)
 - **セキュリティ**:
   - OWASP Top 10 準拠
   - Key 認証完全無効化 (`disableLocalAuth: true` — Cosmos DB, AI Foundry)
@@ -393,12 +417,14 @@
 
 ### 部分的完了の扱い
 
-| 障害発生ステップ | HTTP | 保持される結果 |
-|----------------|------|--------------|
-| SharePoint アップロード失敗 | 500 | なし |
-| Content Understanding 分析失敗 | 207 | SharePoint 上のファイル |
-| 質問生成失敗 | 207 | SharePoint ファイル + 分析結果 (Cosmos DB) |
-| 質問応答中のエージェント障害 | 207 | 上記 + 保存済み回答 |
+バックグラウンド処理中の障害は `processingStatus: "error"` と `processingError` フィールドに記録される。フロントエンドはポーリング結果でエラーを検知しユーザーに通知する。
+
+| 障害発生ステップ | processingStatus | 保持される結果 |
+|----------------|-----------------|---------------|
+| SharePoint アップロード失敗 | (HTTP 500 即時返却) | なし |
+| Content Understanding 分析失敗 | `error` | SharePoint 上のファイル + Cosmos DB 初期ドキュメント |
+| 質問生成失敗 | `completed` (processingError あり) | SharePoint ファイル + 分析結果 (Cosmos DB) |
+| 質問応答中のエージェント障害 | — (HTTP 207) | 上記 + 保存済み回答 |
 
 ## コーディング規約
 

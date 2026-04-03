@@ -35,7 +35,10 @@ Return a JSON array of question objects, each with:
 
 Guidelines:
 - Ask specific, actionable questions rather than vague or general ones.
-- Reference specific sections, figures, or values from the document when possible.
+- Reference specific page numbers (e.g., "on page 3"), sections, or values from the document when possible.
+- NEVER reference figure IDs, figure numbers, or any identifier like "Figure 1", "fig-001", "Figure 16.2".
+  These are internal system identifiers that do not exist in the original document and are meaningless to users.
+  Instead, describe the content (e.g., "the diagram on page 3" or "the table on page 5").
 - Questions should require domain expertise to answer, not just reading the document.
 - Do NOT ask questions whose answers are explicitly stated in the document."""
 

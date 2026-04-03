@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
@@ -18,19 +19,33 @@ def _get_project_client():
     )
 
 
-def generate_questions(analysis_text: str, lang: str = "en") -> list:
+def generate_questions(analysis_text: str, lang: str = "en", figures: list | None = None) -> list:
     """Generate follow-up questions using the question-generator-agent."""
     def call_agent():
         project_client = _get_project_client()
         openai_client = project_client.get_openai_client()
         agent = project_client.agents.get(agent_name="question-generator-agent")
 
-        # Prepend language instruction when Japanese is requested
+        # Replace figure IDs in the text with page number references
         input_text = analysis_text
+        if figures:
+            fig_page_map = {}
+            for fig in figures:
+                fig_id = fig.get("figureId", "")
+                page = fig.get("boundingBox", {}).get("page", None)
+                if fig_id and page:
+                    fig_page_map[fig_id] = page
+
+            # Replace all figure ID references with "(page N)" in the text
+            for fig_id, page in fig_page_map.items():
+                # Match various patterns: ![fig_id](...), fig_id, Figure fig_id, etc.
+                input_text = input_text.replace(fig_id, f"(page {page})")
+
+        # Prepend language instruction when Japanese is requested
         if lang == "ja":
             input_text = (
                 "[INSTRUCTION: Generate all questions and perspectives in Japanese.]\n\n"
-                + analysis_text
+                + input_text
             )
 
         # Create a conversation and send analysis text as input

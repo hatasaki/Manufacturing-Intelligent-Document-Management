@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("btn-login").addEventListener("click", handleLogin);
     document.getElementById("channel-select").addEventListener("change", handleChannelChange);
     document.getElementById("btn-close-modal").addEventListener("click", ui.hideModal);
+    document.getElementById("btn-close-analysis-modal").addEventListener("click", ui.hideAnalysisModal);
     document.getElementById("btn-lang-toggle").addEventListener("click", handleLangToggle);
 
     applyStaticTranslations();
@@ -146,7 +147,7 @@ async function handleUpload(file) {
     try {
         const result = await api.uploadFile(selectedTeamId, selectedChannelId, file);
 
-        if (result.error) {
+        if (result.error && !result.processingStatus) {
             ui.showToast(result.message || result.error, true);
             ui.hideModal();
             await loadFiles();
@@ -155,7 +156,30 @@ async function handleUpload(file) {
 
         await loadFiles();
 
-        if (result.followUpQuestions && result.followUpQuestions.length > 0) {
+        // If backend returned processingStatus, poll until complete
+        if (result.processingStatus && result.processingStatus !== "completed") {
+            ui.renderUploadProgress(t("analyzingDocument"));
+            const doc = await pollProcessingStatus(result.docId);
+
+            if (!doc) {
+                ui.hideModal();
+                ui.showToast(t("uploadSuccess"));
+                return;
+            }
+
+            if (doc.processingError) {
+                ui.showToast(doc.processingError, true);
+            }
+
+            await loadFiles();
+
+            if (doc.followUpQuestions && doc.followUpQuestions.length > 0) {
+                startQuestionFlow(doc.id, doc.followUpQuestions);
+            } else {
+                ui.hideModal();
+                ui.showToast(t("uploadSuccess"));
+            }
+        } else if (result.followUpQuestions && result.followUpQuestions.length > 0) {
             startQuestionFlow(result.docId, result.followUpQuestions);
         } else {
             ui.hideModal();
@@ -165,6 +189,26 @@ async function handleUpload(file) {
         ui.hideModal();
         ui.showToast(t("uploadFailed", { message: err.message }), true);
     }
+}
+
+async function pollProcessingStatus(docId) {
+    const POLL_INTERVAL = 5000;
+    const MAX_POLLS = 120; // 10 minutes max
+    for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+        try {
+            const doc = await api.getDocument(docId, selectedChannelId);
+            if (doc.processingStatus === "generating_questions") {
+                ui.renderUploadProgress(t("generatingQuestions"));
+            }
+            if (doc.processingStatus === "completed" || doc.processingStatus === "error") {
+                return doc;
+            }
+        } catch {
+            // Continue polling on transient errors
+        }
+    }
+    return null;
 }
 
 function startQuestionFlow(docId, questions) {

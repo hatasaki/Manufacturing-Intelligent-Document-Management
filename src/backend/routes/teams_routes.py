@@ -1,5 +1,6 @@
 import logging
 import uuid
+import threading
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request, current_app
@@ -73,7 +74,7 @@ def get_channel_files(team_id, channel_id):
 @teams_bp.route("/teams/<team_id>/channels/<channel_id>/files", methods=["POST"])
 @require_auth
 def upload_file(team_id, channel_id):
-    """Upload a file to the Teams channel's SharePoint and analyze it."""
+    """Upload a file to the Teams channel's SharePoint and start async analysis."""
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -82,6 +83,7 @@ def upload_file(team_id, channel_id):
         return jsonify({"error": "Only PDF files are supported"}), 400
 
     file_content = file.read()
+    lang = request.form.get("lang", "en")
     cosmos = current_app.config["COSMOS_SERVICE"]
 
     try:
@@ -130,58 +132,81 @@ def upload_file(team_id, channel_id):
         except Exception as e:
             logger.warning("Could not set custom field: %s", e)
 
-        # 6. Analyze with Content Understanding
-        try:
-            analysis = content_understanding_service.analyze_document(file_content)
-            analysis["analyzedAt"] = now.isoformat()
-        except Exception as e:
-            logger.error("Content Understanding analysis failed: %s", e, exc_info=True)
-            # Save partial result
-            doc = {
-                "id": doc_id,
-                "channelId": channel_id,
-                "siteId": site_id,
-                "driveItemId": drive_item_id,
-                "driveItemPath": drive_item_path,
-                "analysis": None,
-                "followUpQuestions": [],
-                "questionHistory": question_history,
-                "relatedDocuments": [],
-                "version": 1,
-                "createdInDbAt": now.isoformat(),
-                "updatedInDbAt": now.isoformat(),
-            }
-            cosmos.upsert_document(doc)
-            return jsonify({
-                "error": f"Analysis failed: {type(e).__name__}: {e}",
-                "docId": doc_id,
-                "partialSuccess": True,
-                "message": f"File uploaded successfully. Analysis failed: {type(e).__name__}: {e}",
-            }), 207
-
-        # 7. Save analysis to Cosmos DB
+        # 6. Save initial doc to Cosmos with processing status
         doc = {
             "id": doc_id,
             "channelId": channel_id,
             "siteId": site_id,
             "driveItemId": drive_item_id,
             "driveItemPath": drive_item_path,
-            "analysis": analysis,
+            "analysis": None,
             "followUpQuestions": [],
             "questionHistory": question_history,
             "relatedDocuments": [],
+            "processingStatus": "analyzing",
             "version": 1,
             "createdInDbAt": now.isoformat(),
             "updatedInDbAt": now.isoformat(),
         }
         cosmos.upsert_document(doc)
 
-        # 8. Generate follow-up questions
+        # 7. Start background thread for CU analysis + question generation
+        app = current_app._get_current_object()
+        thread = threading.Thread(
+            target=_process_document_background,
+            args=(app, doc_id, channel_id, file_content, question_history, lang),
+            daemon=True,
+        )
+        thread.start()
+
+        return jsonify({
+            "docId": doc_id,
+            "processingStatus": "analyzing",
+        }), 201
+
+    except Exception as e:
+        logger.error("Upload failed: %s", e)
+        return jsonify({"error": f"Upload failed: {e}"}), 500
+
+
+def _process_document_background(app, doc_id, channel_id, file_content, question_history, lang):
+    """Run Content Understanding analysis and question generation in background."""
+    with app.app_context():
+        cosmos = app.config["COSMOS_SERVICE"]
+
         try:
+            # Analyze with Content Understanding
+            analysis = content_understanding_service.analyze_document(file_content)
+            analysis["analyzedAt"] = datetime.now(timezone.utc).isoformat()
+
+            doc = cosmos.get_document(doc_id, channel_id)
+            if not doc:
+                logger.error("Background: doc %s not found", doc_id)
+                return
+
+            doc["analysis"] = analysis
+            doc["processingStatus"] = "generating_questions"
+            doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+            cosmos.upsert_document(doc)
+
+        except Exception as e:
+            logger.error("Background CU analysis failed for %s: %s", doc_id, e, exc_info=True)
+            doc = cosmos.get_document(doc_id, channel_id)
+            if doc:
+                doc["processingStatus"] = "error"
+                doc["processingError"] = f"Analysis failed: {type(e).__name__}: {e}"
+                doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                cosmos.upsert_document(doc)
+            return
+
+        try:
+            # Generate follow-up questions
             extracted_text = analysis.get("extractedText", "")
-            lang = request.form.get("lang", "en")
-            questions = agent_service.generate_questions(extracted_text, lang=lang)
+            questions = agent_service.generate_questions(
+                extracted_text, lang=lang, figures=analysis.get("figures", [])
+            )
             follow_up = []
+            now = datetime.now(timezone.utc)
             for q in questions:
                 follow_up.append({
                     "questionId": q.get("questionId", f"q-{uuid.uuid4().hex[:3]}"),
@@ -194,23 +219,21 @@ def upload_file(team_id, channel_id):
                     "answer": None,
                     "agentValidation": None,
                 })
+
+            doc = cosmos.get_document(doc_id, channel_id)
+            if not doc:
+                return
             doc["followUpQuestions"] = follow_up
+            doc["processingStatus"] = "completed"
             doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
             cosmos.upsert_document(doc)
+            logger.info("Background processing completed for %s", doc_id)
+
         except Exception as e:
-            logger.error("Question generation failed: %s", e)
-            return jsonify({
-                "docId": doc_id,
-                "partialSuccess": True,
-                "message": f"Question generation failed: {e}. The file has been uploaded successfully. You can retry question generation later.",
-                "followUpQuestions": [],
-            }), 207
-
-        return jsonify({
-            "docId": doc_id,
-            "followUpQuestions": doc["followUpQuestions"],
-        }), 201
-
-    except Exception as e:
-        logger.error("Upload failed: %s", e)
-        return jsonify({"error": f"Upload failed: {e}"}), 500
+            logger.error("Background question generation failed for %s: %s", doc_id, e)
+            doc = cosmos.get_document(doc_id, channel_id)
+            if doc:
+                doc["processingStatus"] = "completed"
+                doc["processingError"] = f"Question generation failed: {e}"
+                doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                cosmos.upsert_document(doc)

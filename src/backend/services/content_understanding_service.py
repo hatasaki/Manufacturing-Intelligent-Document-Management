@@ -20,7 +20,7 @@ def analyze_document(file_content: bytes) -> dict:
 
     def run_analysis():
         poller = client.begin_analyze(
-            analyzer_id="prebuilt-document",
+            analyzer_id="prebuilt-documentSearch",
             inputs=[AnalysisInput(data=file_content, mime_type="application/pdf")],
         )
         return poller.result()
@@ -68,7 +68,7 @@ def analyze_document(file_content: bytes) -> dict:
                 })
 
     analysis = {
-        "modelVersion": "prebuilt-v1",
+        "modelVersion": "prebuilt-documentSearch-v1",
         "extractedText": extracted_text,
         "figures": figures,
         "tables": tables,

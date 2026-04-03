@@ -38,7 +38,7 @@ graph TB
         SP["SharePoint Online<br/>(Teams Channel Files)"]
         COSMOS["Azure Cosmos DB<br/>(Serverless / NoSQL)"]
         FOUNDRY["Azure AI Foundry<br/>(AIServices)"]
-        CU["Content Understanding<br/>(prebuilt-document)"]
+        CU["Content Understanding<br/>(prebuilt-documentSearch)"]
         AGENT_Q["question-generator-agent<br/>(Prompt Agent)"]
         AGENT_A["answer-analysis-agent<br/>(Prompt Agent)"]
         GPT["gpt-4.1-mini<br/>Model Deployment"]
@@ -167,21 +167,28 @@ flowchart TD
     EXISTING -->|Yes| HISTORY[既存質問を questionHistory に移動]
     EXISTING -->|No| CUSTOM
     HISTORY --> CUSTOM[4. SharePoint カスタム列に DocIdentifier 設定]
-    CUSTOM --> ANALYZE[5. Content Understanding で分析]
+    CUSTOM --> SAVE_INIT[5. Cosmos DB に初期ドキュメント保存<br/>processingStatus: analyzing]
+    SAVE_INIT --> RETURN_201[HTTP 201 を即座に返却<br/>docId + processingStatus]
+    RETURN_201 --> POLL[フロントエンド: 5秒間隔でポーリング<br/>GET /api/documents/docId]
+
+    SAVE_INIT --> BG_START[バックグラウンドスレッド開始]
+    BG_START --> ANALYZE[6. Content Understanding で分析<br/>prebuilt-documentSearch]
     ANALYZE --> ANALYZE_OK{分析成功?}
-    ANALYZE_OK -->|No| PARTIAL1[HTTP 207: 部分的完了<br/>SharePoint ファイルのみ保存]
-    ANALYZE_OK -->|Yes| SAVE_ANALYSIS[6. 分析結果を Cosmos DB に保存]
-    SAVE_ANALYSIS --> GEN_Q[7. question-generator-agent で質問生成]
+    ANALYZE_OK -->|No| BG_ERR1[processingStatus: error<br/>processingError に詳細記録]
+    ANALYZE_OK -->|Yes| SAVE_ANALYSIS[7. 分析結果を Cosmos DB に保存<br/>processingStatus: generating_questions]
+    SAVE_ANALYSIS --> GEN_Q[8. question-generator-agent で質問生成]
     GEN_Q --> GEN_OK{質問生成成功?}
-    GEN_OK -->|No| PARTIAL2[HTTP 207: 部分的完了<br/>分析結果まで保存済み]
-    GEN_OK -->|Yes| SAVE_Q[8. 質問を Cosmos DB に保存]
-    SAVE_Q --> RESPONSE[HTTP 201: 成功<br/>docId + followUpQuestions 返却]
-    RESPONSE --> MODAL([フォローアップ質問モーダル表示])
+    GEN_OK -->|No| BG_ERR2[processingStatus: completed<br/>processingError に詳細記録]
+    GEN_OK -->|Yes| SAVE_Q[9. 質問を Cosmos DB に保存<br/>processingStatus: completed]
+
+    POLL -->|completed| MODAL([フォローアップ質問モーダル表示])
+    POLL -->|error| TOAST[エラートースト表示]
 
     style REJECT fill:#ffcccc
-    style PARTIAL1 fill:#fff3cd
-    style PARTIAL2 fill:#fff3cd
-    style RESPONSE fill:#ccffcc
+    style BG_ERR1 fill:#ffcccc
+    style BG_ERR2 fill:#fff3cd
+    style SAVE_Q fill:#ccffcc
+    style RETURN_201 fill:#ccffcc
 ```
 
 ---
@@ -193,17 +200,17 @@ sequenceDiagram
     participant Route as teams_routes.py
     participant CU_SVC as content_understanding_service.py
     participant CU as Azure Content Understanding
-    participant Model as prebuilt-document モデル
+    participant Model as prebuilt-documentSearch モデル
 
     Route->>CU_SVC: analyze_document(file_content: bytes)
     CU_SVC->>CU_SVC: DefaultAzureCredential で認証
-    CU_SVC->>CU: begin_analyze(analyzer_id="prebuilt-document",<br/>input=AnalysisInput(data, mime_type="application/pdf"))
+    CU_SVC->>CU: begin_analyze(analyzer_id="prebuilt-documentSearch",<br/>input=AnalysisInput(data, mime_type="application/pdf"))
     Note over CU: 非同期 LRO (Long Running Operation)
     CU->>Model: PDF 解析実行
     Model-->>CU: AnalysisResult
     CU-->>CU_SVC: poller.result()
     CU_SVC->>CU_SVC: result.contents[0].markdown → extractedText
-    CU_SVC->>CU_SVC: figures, tables, keyValuePairs 抽出
+    CU_SVC->>CU_SVC: figures (説明埋め込み済み), tables, keyValuePairs 抽出
     CU_SVC-->>Route: analysis dict
     Note over CU_SVC: リトライ: 最大3回, 指数バックオフ (2s, 4s, 8s)
 ```
@@ -212,10 +219,10 @@ sequenceDiagram
 
 ```json
 {
-  "modelVersion": "prebuilt-v1",
+  "modelVersion": "prebuilt-documentSearch-v1",
   "analyzedAt": "2026-03-15T14:35:00Z",
-  "extractedText": "... (Markdown 形式テキスト) ...",
-  "figures": [{"figureId": "fig-001", "description": "..."}],
+  "extractedText": "... (Markdown 形式テキスト、図の説明埋め込み) ...",
+  "figures": [{"figureId": "fig-001", "description": "...", "boundingBox": {"page": 3}}],
   "tables": [{"rowCount": 5, "columnCount": 3}],
   "keyValuePairs": [{"key": "Part Number", "value": "ABC-123"}]
 }
@@ -258,7 +265,8 @@ sequenceDiagram
     participant Agent as question-generator-agent
     participant GPT as gpt-4.1-mini
 
-    Route->>Agent_SVC: generate_questions(extracted_text)
+    Route->>Agent_SVC: generate_questions(extracted_text, figures)
+    Agent_SVC->>Agent_SVC: 図 ID をページ番号に置換<br/>(fig-001 → "(page 3)")
     Agent_SVC->>Client: AIProjectClient(endpoint, credential)
     Agent_SVC->>Client: get_openai_client()
     Client-->>Agent_SVC: openai_client
@@ -447,15 +455,16 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> Uploaded: SharePoint アップロード成功
-    Uploaded --> Analyzed: Content Understanding 分析完了
-    Uploaded --> PartialError: 分析失敗 (HTTP 207)
-    Analyzed --> QuestionsGenerated: 質問生成成功
-    Analyzed --> PartialError: 質問生成失敗 (HTTP 207)
-    QuestionsGenerated --> Answering: ユーザーが回答開始
+    Uploaded --> Analyzing: processingStatus: analyzing<br/>バックグラウンドスレッド開始
+    Analyzing --> GeneratingQuestions: processingStatus: generating_questions<br/>CU 分析完了
+    Analyzing --> Error: processingStatus: error<br/>CU 分析失敗
+    GeneratingQuestions --> Completed: processingStatus: completed<br/>質問生成成功
+    GeneratingQuestions --> CompletedWithError: processingStatus: completed<br/>質問生成失敗 (processingError あり)
+    Completed --> Answering: ユーザーが回答開始
     Answering --> Answered: 全質問回答完了/スキップ
-    Answered --> QuestionsGenerated: 再アップロード/再生成<br/>(既存質問は questionHistory へ)
-    PartialError --> Analyzed: 再分析
-    PartialError --> QuestionsGenerated: 再生成
+    Answered --> Analyzing: 再アップロード/再生成<br/>(既存質問は questionHistory へ)
+    Error --> Analyzing: 再分析
+    CompletedWithError --> Completed: 再生成
 ```
 
 ---
@@ -527,10 +536,11 @@ flowchart LR
     CH -->|"joinedTeams → channels"| GRAPH
     FILES -->|"filesFolder → children"| GRAPH
     FILES -->|"driveItemId 検索"| COSMOS
-    UPLOAD -->|"PUT/Upload Session"| GRAPH
-    UPLOAD -->|"analyze_document"| CU
-    UPLOAD -->|"generate_questions"| AGENT
-    UPLOAD -->|"upsert_document"| COSMOS
+    UPLOAD -->|"PUT/Upload Session<br/>+ processingStatus: analyzing"| GRAPH
+    UPLOAD -->|"upsert(初期ドキュメント)"| COSMOS
+    Note over UPLOAD: HTTP 201 即座返却
+    UPLOAD -.->|"バックグラウンドスレッド"| CU
+    UPLOAD -.->|"バックグラウンドスレッド"| AGENT
     DOC -->|"get_drive_item"| GRAPH
     DOC -->|"get_document"| COSMOS
     GENQ -->|"generate_questions"| AGENT
@@ -563,26 +573,27 @@ flowchart TD
     end
 ```
 
-### 部分的完了 (HTTP 207) の段階的保存
+### 部分的完了 — 非同期処理の段階的保存
 
 ```mermaid
 flowchart TD
     STEP1["Step 1: SharePoint アップロード"] --> S1_OK{成功?}
     S1_OK -->|No| ERR500["HTTP 500<br/>保存結果: なし"]
-    S1_OK -->|Yes| STEP2["Step 2: Content Understanding 分析"]
-    STEP2 --> S2_OK{成功?}
-    S2_OK -->|No| ERR207_1["HTTP 207<br/>保存: SharePoint ファイル"]
-    S2_OK -->|Yes| STEP3["Step 3: Cosmos DB 保存"]
-    STEP3 --> STEP4["Step 4: 質問生成 (Agent)"]
+    S1_OK -->|Yes| STEP2["Step 2: Cosmos DB 初期保存<br/>processingStatus: analyzing"]
+    STEP2 --> RETURN["HTTP 201 即座返却"]
+    RETURN --> BG["バックグラウンドスレッド開始"]
+    BG --> STEP3["Step 3: Content Understanding 分析"]
+    STEP3 --> S3_OK{成功?}
+    S3_OK -->|No| ERR_PROC1["processingStatus: error<br/>保存: SP ファイル + 初期ドキュメント"]
+    S3_OK -->|Yes| STEP4["Step 4: 質問生成 (Agent)"]
     STEP4 --> S4_OK{成功?}
-    S4_OK -->|No| ERR207_2["HTTP 207<br/>保存: ファイル + 分析結果"]
-    S4_OK -->|Yes| STEP5["Step 5: 質問保存"]
-    STEP5 --> OK201["HTTP 201<br/>全ステップ完了"]
+    S4_OK -->|No| ERR_PROC2["processingStatus: completed<br/>processingError あり<br/>保存: ファイル + 分析結果"]
+    S4_OK -->|Yes| STEP5["Step 5: 質問保存<br/>processingStatus: completed"]
 
     style ERR500 fill:#ffcccc
-    style ERR207_1 fill:#fff3cd
-    style ERR207_2 fill:#fff3cd
-    style OK201 fill:#ccffcc
+    style ERR_PROC1 fill:#ffcccc
+    style ERR_PROC2 fill:#fff3cd
+    style STEP5 fill:#ccffcc
 ```
 
 ---
@@ -654,15 +665,17 @@ graph TD
         LEFT["左ペイン: ファイル一覧<br/>#file-list + #drop-zone"]
         RIGHT["右ペイン: ファイル詳細<br/>#file-details"]
         MODAL["モーダル: フォローアップ質問<br/>#question-modal"]
+        ANALYSIS_MODAL["モーダル: 分析結果表示<br/>#analysis-modal<br/>Markdown レンダリング (marked.js + DOMPurify)"]
         TOAST["トースト通知<br/>#toast-container"]
     end
 
     subgraph "JavaScript Modules"
-        APP_JS["app.js — アプリ制御<br/>イベントハンドラ<br/>質問フロー制御"]
+        APP_JS["app.js — アプリ制御<br/>イベントハンドラ<br/>質問フロー制御<br/>アップロードポーリング"]
         AUTH_JS["auth.js — 認証<br/>MSAL.js 初期化<br/>トークン取得"]
         API_JS["api.js — API クライアント<br/>全エンドポイント呼び出し"]
-        UI_JS["ui.js — UI 描画<br/>DOM 操作<br/>チャットUI"]
+        UI_JS["ui.js — UI 描画<br/>DOM 操作<br/>チャットUI<br/>分析結果モーダル"]
         CONFIG_JS["config.js — 設定<br/>MSAL Config<br/>API Base URL"]
+        I18N_JS["i18n.js — 国際化<br/>EN/JP 切り替え"]
     end
 
     LOGIN -->|"ログイン成功"| MAIN
@@ -696,9 +709,11 @@ flowchart TD
 
     G -->|PDF ドロップ| K[POST /api/teams/.../files]
     K --> L[SharePoint アップロード]
-    L --> M[Content Understanding 分析]
-    M --> N[question-generator-agent<br/>約5問の質問生成]
-    N --> O[フォローアップモーダル表示]
+    L --> L2[HTTP 201 即座返却<br/>processingStatus: analyzing]
+    L2 --> L3[フロントエンド: 5秒間隔ポーリング]
+    L3 -.-> M[バックグラウンド:<br/>Content Understanding 分析]
+    M -.-> N[バックグラウンド:<br/>question-generator-agent<br/>約 5 問の質問生成]
+    L3 -->|processingStatus: completed| O[フォローアップモーダル表示]
     O --> P{ユーザーの選択}
 
     P -->|回答入力| Q[POST /api/documents/.../answer]

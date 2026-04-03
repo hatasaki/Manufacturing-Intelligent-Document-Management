@@ -50,6 +50,9 @@ def get_document(doc_id):
             "id": doc["id"],
             "channelId": doc.get("channelId", ""),
             **file_meta,
+            "analysis": doc.get("analysis"),
+            "processingStatus": doc.get("processingStatus"),
+            "processingError": doc.get("processingError"),
             "followUpQuestions": doc.get("followUpQuestions", []),
             "questionHistory": doc.get("questionHistory", []),
         })
@@ -80,7 +83,9 @@ def regenerate_questions(doc_id):
 
         extracted_text = analysis.get("extractedText", "")
         lang = request.json.get("lang", "en") if request.json else "en"
-        questions = agent_service.generate_questions(extracted_text, lang=lang)
+        questions = agent_service.generate_questions(
+            extracted_text, lang=lang, figures=analysis.get("figures", [])
+        )
 
         now = datetime.now(timezone.utc)
 

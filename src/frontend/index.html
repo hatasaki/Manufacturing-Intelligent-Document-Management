@@ -85,12 +85,28 @@
             </div>
         </div>
 
+        <!-- Analysis Results Modal -->
+        <div id="analysis-modal" class="modal hidden">
+            <div class="modal-backdrop" onclick="document.getElementById('analysis-modal').classList.add('hidden')"></div>
+            <div class="modal-content modal-content-wide">
+                <div class="modal-header">
+                    <h2>Analysis Results</h2>
+                    <button id="btn-close-analysis-modal" class="btn-close">&times;</button>
+                </div>
+                <div id="analysis-modal-body" class="modal-body analysis-modal-body">
+                    <!-- Dynamic content -->
+                </div>
+            </div>
+        </div>
+
         <!-- Toast Notifications -->
         <div id="toast-container" class="toast-container"></div>
     </div>
 
     <script src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"
             crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

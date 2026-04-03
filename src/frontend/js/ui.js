@@ -76,11 +76,21 @@ export function renderFileDetails(doc, detailsEl) {
                 </div>
             </div>
         </div>
+        <div class="analysis-section">
+            <button id="btn-show-analysis" class="btn btn-analysis" ${doc.analysis ? '' : 'disabled'}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                ${escapeHtml(t("btnShowAnalysis"))}
+            </button>
+        </div>
         <div class="questions-section">
             <h3>${escapeHtml(t("followUpQuestionsAndAnswers"))}</h3>
             ${renderQuestionsList(doc.followUpQuestions || [])}
         </div>
     `;
+    const btnAnalysis = document.getElementById('btn-show-analysis');
+    if (btnAnalysis && doc.analysis) {
+        btnAnalysis.addEventListener('click', () => showAnalysisModal(doc.analysis));
+    }
 }
 
 function renderQuestionsList(questions) {
@@ -236,6 +246,63 @@ function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+}
+
+function showAnalysisModal(analysis) {
+    const modal = document.getElementById('analysis-modal');
+    const body = document.getElementById('analysis-modal-body');
+
+    const analyzedAt = analysis.analyzedAt ? formatDate(analysis.analyzedAt) : '—';
+    const modelVersion = escapeHtml(analysis.modelVersion || '—');
+
+    let tablesHtml = '';
+    if (analysis.tables && analysis.tables.length > 0) {
+        tablesHtml = `<div class="analysis-block">
+            <h4>${escapeHtml(t('analysisTables'))} (${analysis.tables.length})</h4>
+            <ul class="analysis-list">${analysis.tables.map((tb, i) =>
+                `<li>${escapeHtml(t('analysisTable'))} ${i + 1}: ${tb.rowCount} rows × ${tb.columnCount} cols</li>`
+            ).join('')}</ul>
+        </div>`;
+    }
+
+    let kvpHtml = '';
+    if (analysis.keyValuePairs && analysis.keyValuePairs.length > 0) {
+        kvpHtml = `<div class="analysis-block">
+            <h4>${escapeHtml(t('analysisKeyValuePairs'))} (${analysis.keyValuePairs.length})</h4>
+            <ul class="analysis-list">${analysis.keyValuePairs.map(kv =>
+                `<li><strong>${escapeHtml(kv.key)}</strong>: ${escapeHtml(kv.value)}</li>`
+            ).join('')}</ul>
+        </div>`;
+    }
+
+    const extractedText = analysis.extractedText || '';
+
+    // Render markdown to HTML and sanitize
+    let renderedText;
+    if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+        renderedText = DOMPurify.sanitize(marked.parse(extractedText));
+    } else {
+        renderedText = `<pre>${escapeHtml(extractedText)}</pre>`;
+    }
+
+    body.innerHTML = `
+        <div class="analysis-meta">
+            <span><strong>${escapeHtml(t('analysisModel'))}:</strong> ${modelVersion}</span>
+            <span><strong>${escapeHtml(t('analysisAnalyzedAt'))}:</strong> ${analyzedAt}</span>
+        </div>
+        ${tablesHtml}
+        ${kvpHtml}
+        <div class="analysis-block">
+            <h4>${escapeHtml(t('analysisExtractedText'))}</h4>
+            <div class="analysis-extracted-text analysis-markdown">${renderedText}</div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+}
+
+export function hideAnalysisModal() {
+    document.getElementById('analysis-modal').classList.add('hidden');
 }
 
 export { escapeHtml as escapeHtmlPublic };

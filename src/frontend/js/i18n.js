@@ -36,7 +36,9 @@ const translations = {
         allQuestionsCompleted: "All Questions Completed",
         btnClose: "Close",
         // Upload
-        uploadingMessage: "Uploading and analyzing file...",
+        uploadingMessage: "Uploading file to SharePoint...",
+        analyzingDocument: "Analyzing document content...",
+        generatingQuestions: "Generating follow-up questions...",
         uploadSuccess: "File uploaded successfully.",
         // Toast / error messages
         authInitFailed: "Authentication initialization failed. Check console for details.",
@@ -52,6 +54,17 @@ const translations = {
         thankYouDetailed: "Thank you for your detailed responses. Your input has been recorded.",
         answerAccepted: "Answer accepted. Moving to next question.",
         answerAnalysisUnavailable: "Answer analysis temporarily unavailable. Your answer has been saved.",
+        // Analysis modal
+        btnShowAnalysis: "Analysis Results",
+        analysisModel: "Model",
+        analysisAnalyzedAt: "Analyzed At",
+        analysisFigures: "Figures",
+        analysisPage: "Page",
+        analysisTables: "Tables",
+        analysisTable: "Table",
+        analysisKeyValuePairs: "Key-Value Pairs",
+        analysisExtractedText: "Extracted Text",
+        analysisModalTitle: "Analysis Results",
         // Date format locale
         dateLocale: "en-US",
     },
@@ -92,7 +105,9 @@ const translations = {
         allQuestionsCompleted: "すべての質問が完了しました",
         btnClose: "閉じる",
         // Upload
-        uploadingMessage: "ファイルをアップロードして分析中...",
+        uploadingMessage: "SharePointにファイルをアップロード中...",
+        analyzingDocument: "ドキュメントの内容を分析中...",
+        generatingQuestions: "フォローアップ質問を生成中...",
         uploadSuccess: "ファイルが正常にアップロードされました。",
         // Toast / error messages
         authInitFailed: "認証の初期化に失敗しました。コンソールで詳細を確認してください。",
@@ -108,6 +123,17 @@ const translations = {
         thankYouDetailed: "詳細なご回答をいただきありがとうございます。ご回答は記録されました。",
         answerAccepted: "回答が承認されました。次の質問に進みます。",
         answerAnalysisUnavailable: "回答の分析が一時的に利用できません。回答は保存されました。",
+        // Analysis modal
+        btnShowAnalysis: "ファイルの分析結果",
+        analysisModel: "モデル",
+        analysisAnalyzedAt: "分析日時",
+        analysisFigures: "図",
+        analysisPage: "ページ",
+        analysisTables: "テーブル",
+        analysisTable: "テーブル",
+        analysisKeyValuePairs: "キーと値のペア",
+        analysisExtractedText: "抽出テキスト",
+        analysisModalTitle: "ファイルの分析結果",
         // Date format locale
         dateLocale: "ja-JP",
     },
