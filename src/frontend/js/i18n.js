@@ -54,6 +54,8 @@ const translations = {
         thankYouDetailed: "Thank you for your detailed responses. Your input has been recorded.",
         answerAccepted: "Answer accepted. Moving to next question.",
         answerAnalysisUnavailable: "Answer analysis temporarily unavailable. Your answer has been saved.",
+        // Deep Analysis toggle
+        deepAnalysisLabel: "Deep Analysis",
         // Analysis modal
         btnShowAnalysis: "Analysis Results",
         analysisModel: "Model",
@@ -123,6 +125,8 @@ const translations = {
         thankYouDetailed: "詳細なご回答をいただきありがとうございます。ご回答は記録されました。",
         answerAccepted: "回答が承認されました。次の質問に進みます。",
         answerAnalysisUnavailable: "回答の分析が一時的に利用できません。回答は保存されました。",
+        // Deep Analysis toggle
+        deepAnalysisLabel: "詳細分析",
         // Analysis modal
         btnShowAnalysis: "ファイルの分析結果",
         analysisModel: "モデル",

@@ -144,8 +144,10 @@ function setupDropZone() {
 async function handleUpload(file) {
     ui.renderUploadProgress(t("uploadingMessage"));
 
+    const deepAnalysis = document.getElementById("deep-analysis-toggle")?.checked || false;
+
     try {
-        const result = await api.uploadFile(selectedTeamId, selectedChannelId, file);
+        const result = await api.uploadFile(selectedTeamId, selectedChannelId, file, deepAnalysis);
 
         if (result.error && !result.processingStatus) {
             ui.showToast(result.message || result.error, true);
@@ -327,4 +329,8 @@ function applyStaticTranslations() {
     // Modal header
     const modalH2 = document.querySelector(".modal-header h2");
     if (modalH2) modalH2.textContent = t("followUpQuestionsHeader");
+
+    // Deep analysis toggle label
+    const deepLabel = document.getElementById("deep-analysis-label");
+    if (deepLabel) deepLabel.textContent = t("deepAnalysisLabel");
 }

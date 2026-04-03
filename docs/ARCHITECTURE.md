@@ -38,7 +38,7 @@ graph TB
         SP["SharePoint Online<br/>(Teams Channel Files)"]
         COSMOS["Azure Cosmos DB<br/>(Serverless / NoSQL)"]
         FOUNDRY["Azure AI Foundry<br/>(AIServices)"]
-        CU["Content Understanding<br/>(prebuilt-documentSearch)"]
+        CU["Content Understanding<br/>(prebuilt-document /<br/>prebuilt-documentSearch)"]
         AGENT_Q["question-generator-agent<br/>(Prompt Agent)"]
         AGENT_A["answer-analysis-agent<br/>(Prompt Agent)"]
         GPT["gpt-4.1-mini<br/>Model Deployment"]
@@ -200,11 +200,12 @@ sequenceDiagram
     participant Route as teams_routes.py
     participant CU_SVC as content_understanding_service.py
     participant CU as Azure Content Understanding
-    participant Model as prebuilt-documentSearch モデル
+    participant Model as prebuilt-document /<br/>prebuilt-documentSearch
 
-    Route->>CU_SVC: analyze_document(file_content: bytes)
+    Route->>CU_SVC: analyze_document(file_content, deep_analysis)
     CU_SVC->>CU_SVC: DefaultAzureCredential で認証
-    CU_SVC->>CU: begin_analyze(analyzer_id="prebuilt-documentSearch",<br/>input=AnalysisInput(data, mime_type="application/pdf"))
+    CU_SVC->>CU_SVC: analyzer_id = deep_analysis ?<br/>"prebuilt-documentSearch" : "prebuilt-document"
+    CU_SVC->>CU: begin_analyze(analyzer_id,<br/>input=AnalysisInput(data, mime_type="application/pdf"))
     Note over CU: 非同期 LRO (Long Running Operation)
     CU->>Model: PDF 解析実行
     Model-->>CU: AnalysisResult
@@ -661,7 +662,7 @@ graph TD
     subgraph "index.html"
         LOGIN["ログイン画面<br/>#login-screen"]
         MAIN["メインアプリ<br/>#main-app"]
-        HEADER["ヘッダー<br/>ロゴ | チャネル選択 | ユーザー名"]
+        HEADER["ヘッダー<br/>ロゴ | チャネル選択 | Deep Analysis トグル | EN/JP | ユーザー名"]
         LEFT["左ペイン: ファイル一覧<br/>#file-list + #drop-zone"]
         RIGHT["右ペイン: ファイル詳細<br/>#file-details"]
         MODAL["モーダル: フォローアップ質問<br/>#question-modal"]

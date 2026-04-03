@@ -84,6 +84,7 @@ def upload_file(team_id, channel_id):
 
     file_content = file.read()
     lang = request.form.get("lang", "en")
+    deep_analysis = request.form.get("deepAnalysis", "false").lower() == "true"
     cosmos = current_app.config["COSMOS_SERVICE"]
 
     try:
@@ -154,7 +155,7 @@ def upload_file(team_id, channel_id):
         app = current_app._get_current_object()
         thread = threading.Thread(
             target=_process_document_background,
-            args=(app, doc_id, channel_id, file_content, question_history, lang),
+            args=(app, doc_id, channel_id, file_content, question_history, lang, deep_analysis),
             daemon=True,
         )
         thread.start()
@@ -169,14 +170,14 @@ def upload_file(team_id, channel_id):
         return jsonify({"error": f"Upload failed: {e}"}), 500
 
 
-def _process_document_background(app, doc_id, channel_id, file_content, question_history, lang):
+def _process_document_background(app, doc_id, channel_id, file_content, question_history, lang, deep_analysis=False):
     """Run Content Understanding analysis and question generation in background."""
     with app.app_context():
         cosmos = app.config["COSMOS_SERVICE"]
 
         try:
             # Analyze with Content Understanding
-            analysis = content_understanding_service.analyze_document(file_content)
+            analysis = content_understanding_service.analyze_document(file_content, deep_analysis=deep_analysis)
             analysis["analyzedAt"] = datetime.now(timezone.utc).isoformat()
 
             doc = cosmos.get_document(doc_id, channel_id)

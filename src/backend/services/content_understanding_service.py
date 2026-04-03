@@ -10,17 +10,26 @@ from services.auth_service import retry_with_backoff
 logger = logging.getLogger(__name__)
 
 
-def analyze_document(file_content: bytes) -> dict:
-    """Analyze a PDF using Azure Content Understanding pre-built document model."""
+def analyze_document(file_content: bytes, deep_analysis: bool = False) -> dict:
+    """Analyze a PDF using Azure Content Understanding.
+    
+    Args:
+        file_content: Raw PDF bytes.
+        deep_analysis: If True, use prebuilt-documentSearch (with figure analysis).
+                       If False, use prebuilt-document (faster).
+    """
     credential = DefaultAzureCredential()
     client = ContentUnderstandingClient(
         endpoint=Config.CONTENT_UNDERSTANDING_ENDPOINT,
         credential=credential,
     )
 
+    analyzer_id = "prebuilt-documentSearch" if deep_analysis else "prebuilt-document"
+    logger.info("Using analyzer: %s", analyzer_id)
+
     def run_analysis():
         poller = client.begin_analyze(
-            analyzer_id="prebuilt-documentSearch",
+            analyzer_id=analyzer_id,
             inputs=[AnalysisInput(data=file_content, mime_type="application/pdf")],
         )
         return poller.result()
@@ -68,7 +77,7 @@ def analyze_document(file_content: bytes) -> dict:
                 })
 
     analysis = {
-        "modelVersion": "prebuilt-documentSearch-v1",
+        "modelVersion": f"{analyzer_id}-v1",
         "extractedText": extracted_text,
         "figures": figures,
         "tables": tables,

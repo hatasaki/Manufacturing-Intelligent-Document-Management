@@ -91,8 +91,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ [Logo] Manufacturing Intelligent    [Teams Channel ▼]    [User名]  │
-│        Document Management          (トップ中央)                   │
+│ [Logo] Manufacturing Intelligent    [Teams Channel ▼] [Deep Analysis] [EN/JP] [User名]  │
+│        Document Management          (トップ中央)                                      │
 ├──────────────────────────┬──────────────────────────────────────────┤
 │                          │                                          │
 │   ファイル一覧 (左ペイン)  │        ファイル詳細 (右ペイン)            │
@@ -123,7 +123,7 @@
 |-----------|-----------|------|------|
 | 左 | `.header-left` | `flex: 1` | ロゴアイコン + アプリタイトル |
 | 中央 | `.header-center` | `flex: 1; justify-content: center` | Teams チャネル選択プルダウン |
-| 右 | `.header-right` | `flex: 1; justify-content: flex-end` | ユーザー名表示 |
+| 右 | `.header-right` | `flex: 1; justify-content: flex-end` | Deep Analysis トグルスイッチ + 言語切り替え (EN/JP) + ユーザー名表示 |
 
 ### フォローアップ質問ウィンドウ (モーダル — チャットスレッド形式)
 
@@ -217,12 +217,12 @@
 
 - **サービス**: Azure Content Understanding in Foundry Tools (Azure AI Service)
 - **Python SDK**: `azure-ai-contentunderstanding` v1.0.1 (API version `2025-11-01`)
-- **アナライザー**: `prebuilt-documentSearch` (RAG 用プリビルトアナライザー)
-  - 図の検出・説明生成 (チャート: chart.js、ダイアグラム: mermaid.js 構造化出力)
-  - テーブル、キー・バリューペア、段落の抽出
-  - ドキュメント全体のサマリー生成
+- **アナライザー切り替え** (Deep Analysis トグルスイッチ):
+  - **OFF (デフォルト)**: `prebuilt-document` — 高速なテキスト抽出、テーブル、キー・バリューペア抽出
+  - **ON**: `prebuilt-documentSearch` (RAG 用アナライザー) — 図の検出・説明生成 (チャート: chart.js、ダイアグラム: mermaid.js)、テーブル、キー・バリューペア、サマリー生成
+- **切り替え方法**: ヘッダー右側の「Deep Analysis」トグルスイッチでアップロード時に選択。フロントエンドから `deepAnalysis` パラメータでバックエンドに送信
 - **入力**: `AnalysisInput(data=file_content, mime_type="application/pdf")`
-- **出力**: `AnalysisResult` — `result.contents[0].markdown` で抽出テキスト取得 (図の説明がマークダウン内に埋め込み)
+- **出力**: `AnalysisResult` — `result.contents[0].markdown` で抽出テキスト取得 (Deep Analysis ON 時は図の説明がマークダウン内に埋め込み)
 - **前提設定**: Foundry リソースに Content Understanding デフォルト設定が必要:
   ```
   PATCH {endpoint}/contentunderstanding/defaults?api-version=2025-11-01

@@ -31,11 +31,12 @@ export async function getChannelFiles(teamId, channelId) {
     return apiRequest(`/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/files`);
 }
 
-export async function uploadFile(teamId, channelId, file) {
+export async function uploadFile(teamId, channelId, file, deepAnalysis = false) {
     const token = await getAccessToken();
     const formData = new FormData();
     formData.append("file", file);
     formData.append("lang", getLang());
+    formData.append("deepAnalysis", deepAnalysis ? "true" : "false");
 
     const response = await fetch(
         `${API_BASE}/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/files`,
