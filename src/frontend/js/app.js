@@ -26,6 +26,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     applyStaticTranslations();
     setupDropZone();
+    ui.initPaneDivider();
 });
 
 async function handleLogin() {
@@ -101,8 +102,36 @@ async function handleFileSelect(file) {
     try {
         const doc = await api.getDocument(file.docId, selectedChannelId);
         ui.renderFileDetails(doc, document.getElementById("file-details"));
+
+        // Register callback for lazy-loading enriched relationship data
+        window._loadEnrichedRelationships = async (docId, channelId) => {
+            try {
+                const data = await api.getDocumentRelationships(docId, channelId || selectedChannelId);
+                ui.updateRelationshipsFromApi(data);
+            } catch (err) {
+                console.error("Failed to load enriched relationships:", err);
+            }
+        };
+
+        // If relationship extraction is in progress, start polling
+        if (doc.relationshipStatus === "queued" || doc.relationshipStatus === "extracting") {
+            pollRelationships(file.docId);
+        }
     } catch (err) {
         ui.showToast(t("loadDetailsFailed"), true);
+    }
+}
+
+function selectFileByDocId(docId) {
+    const fileList = document.getElementById("file-list");
+    if (!fileList) return;
+    const items = fileList.querySelectorAll(".file-item");
+    for (const item of items) {
+        if (item.dataset.docId === docId) {
+            item.click();
+            item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            return;
+        }
     }
 }
 
@@ -213,6 +242,23 @@ async function pollProcessingStatus(docId) {
     return null;
 }
 
+async function pollRelationships(docId) {
+    const POLL_INTERVAL = 5000;
+    const MAX_POLLS = 60; // 5 minutes max
+    for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+        try {
+            const data = await api.getDocumentRelationships(docId, selectedChannelId);
+            ui.updateRelationshipsFromApi(data);
+            if (data.relationshipStatus === "completed" || data.relationshipStatus === "error") {
+                return;
+            }
+        } catch {
+            // Continue polling on transient errors
+        }
+    }
+}
+
 function startQuestionFlow(docId, questions) {
     let currentIndex = 0;
 
@@ -221,7 +267,7 @@ function startQuestionFlow(docId, questions) {
             ui.renderModalComplete(
                 t("thankYouComplete")
             );
-            loadFiles();
+            loadFiles().then(() => selectFileByDocId(docId));
             return;
         }
 

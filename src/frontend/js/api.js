@@ -76,3 +76,9 @@ export async function submitAnswer(docId, questionId, channelId, answer, answere
         }
     );
 }
+
+export async function getDocumentRelationships(docId, channelId) {
+    return apiRequest(
+        `/documents/${encodeURIComponent(docId)}/relationships?channelId=${encodeURIComponent(channelId)}`
+    );
+}

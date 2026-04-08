@@ -62,6 +62,7 @@
 │   │       ├── api.js
 │   │       ├── auth.js
 │   │       ├── config.js
+│   │       ├── i18n.js
 │   │       └── ui.js
 │   └── backend/            # バックエンド API (Python / Flask)
 │       ├── app.py
@@ -70,15 +71,19 @@
 │       ├── routes/
 │       │   ├── auth_routes.py
 │       │   ├── teams_routes.py
-│       │   └── document_routes.py
+│       │   ├── document_routes.py
+│       │   └── relationship_routes.py
 │       └── services/
 │           ├── auth_service.py
 │           ├── graph_service.py
 │           ├── cosmos_service.py
 │           ├── content_understanding_service.py
-│           └── agent_service.py
+│           ├── agent_service.py
+│           └── relationship_service.py
 └── docs/
-    └── APP_SPEC.md
+    ├── APP_SPEC.md
+    ├── ARCHITECTURE.md
+    └── RELATIONSHIP_SPEC.md
 ```
 
 ---
@@ -88,6 +93,13 @@
 言語: **英語** のモダン UI Web アプリケーション
 
 ### レイアウト
+
+- 左右ペインの境界はドラッグでリサイズ可能 (ペインディバイダー)
+- 左ペインのファイル名はシングルクリックで選択、ダブルクリックで SharePoint URL を新しいタブでオープン
+- 右ペインは Details / Trace の 2 タブ構成
+  - **Details タブ**: メタデータ・分析結果ボタン・フォローアップ質問
+  - **Trace タブ**: 文書分類情報・関連ドキュメント一覧 (詳細は RELATIONSHIP_SPEC.md 参照)
+- ファイルアップロード後のフォローアップ質問完了時に、アップロードしたファイルを自動選択して詳細を右ペインに表示
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -297,6 +309,8 @@
   "siteId": "sharepoint-site-id",
   "driveItemId": "sharepoint-drive-item-id",
   "driveItemPath": "/drives/{driveId}/items/{itemId}",
+  "fileName": "brake-control-detailed-design.pdf",
+  "webUrl": "https://contoso.sharepoint.com/...",
 
   // === Content Understanding 分析結果 ===
   "analysis": {
@@ -337,6 +351,12 @@
   "processingStatus": "completed",  // "analyzing" | "generating_questions" | "completed" | "error"
   "processingError": null,           // エラー発生時のメッセージ
 
+  // === 文書関係抽出 (詳細は RELATIONSHIP_SPEC.md 参照) ===
+  "documentClassification": null,    // 文書分類結果 (object | null)
+  "relationships": [],               // 抽出された関係リスト
+  "relationshipStatus": null,        // "queued" | "extracting" | "completed" | "error"
+  "relationshipError": null,         // 関係抽出エラー詳細
+
   // === メタ情報 ===
   "version": 1,
   "createdInDbAt": "2026-03-15T14:35:00Z",
@@ -354,6 +374,7 @@
 | `GET` | `/api/teams/{team_id}/channels/{channel_id}/files` | チャネルの SharePoint ファイル一覧取得 |
 | `POST` | `/api/teams/{team_id}/channels/{channel_id}/files` | ファイルアップロード (PDF のみ、非同期処理) |
 | `GET` | `/api/documents/{doc_id}?channelId={channelId}` | ドキュメント詳細取得 (Cosmos DB + Graph API) |
+| `GET` | `/api/documents/{doc_id}/relationships?channelId={channelId}` | ドキュメント関係情報取得 |
 | `POST` | `/api/documents/{doc_id}/generate-questions` | フォローアップ質問生成 |
 | `POST` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 質問への回答送信・分析 (最大 3 往復) |
 | `GET` | `/api/me` | ログインユーザー情報取得 |
@@ -384,7 +405,7 @@
 3. **ZIP デプロイ** (`az webapp deployment source config-zip`, Oryx ビルド)
 4. **Cosmos DB データベース/コンテナ作成** (`az cosmosdb sql database/container create`)
 5. **Content Understanding デフォルト設定** (`PATCH /contentunderstanding/defaults`)
-6. **Foundry Agent 作成** (`scripts/create_agents.py` — `question-generator-agent`, `answer-analysis-agent`)
+6. **Foundry Agent 作成** (`scripts/create_agents.py` — `question-generator-agent`, `answer-analysis-agent`, `doc-classifier-agent`, `relationship-analyzer-agent`)
 
 ---
 

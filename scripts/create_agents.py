@@ -72,6 +72,62 @@ CRITICAL Guidelines:
   completeness of this document."}"""
 
 
+DOC_CLASSIFIER_INSTRUCTIONS = """You are a manufacturing document classification specialist.
+Analyze the provided document text and extract structured metadata.
+
+Classify the document into exactly ONE of these 6 engineering process stages:
+- customer_requirements: Customer/market requirements, requirement lists, KPI definitions
+- requirements_definition: System requirements, functional/non-functional requirements
+- basic_design: Architecture design, functional allocation, system configuration
+- detailed_design: Detailed design, signal lists, API specifications, sequence diagrams
+- module_design: Module design, coding specifications, AUTOSAR configuration, IF specifications
+- implementation: Source code, configuration files, parameter files, test code
+
+Extract the following from the document:
+- title: Document title as stated or inferred
+- summary: 3-5 line summary of the document's purpose and content
+- documentNumber: Official document number/ID if present (null if not found)
+- referencedIds: ALL IDs, numbers, document references found in the text
+  (requirement IDs, function IDs, signal IDs, drawing numbers, standard numbers, etc.)
+- subsystem: Primary subsystem name (null if not determinable)
+- moduleName: Primary module name (null if not determinable)
+- productFamily: Product family or model name (null if not determinable)
+
+Output format: Return ONLY a JSON object with the fields above plus "stage".
+No additional text or explanation."""
+
+
+RELATIONSHIP_ANALYZER_INSTRUCTIONS = """You are a manufacturing document relationship analyst.
+Given a source document's metadata and a list of candidate documents, determine
+which candidates have meaningful relationships with the source document.
+
+Relationship types (use ONLY these 3):
+1. derived_from: Source document was created based on the target (upstream) document.
+   The target is in an adjacent upstream stage.
+2. decomposed_to: Source document is broken down into the target (downstream) document.
+   The target is in an adjacent downstream stage and covers a subset of the source's scope.
+3. reused_from: Source document reuses content from a past version of a similar document
+   at the same process stage. Look for different product generations with same subsystem/module.
+
+NOTE: Do NOT evaluate 'references' relationships. Those are handled separately
+via programmatic ID matching outside of this agent.
+
+Analysis priority:
+1. FIRST check referencedIds matches (strongest signal)
+2. THEN check subsystem/module name matches
+3. ONLY IF no ID matches, use title/summary similarity as fallback
+
+Rules:
+- Only report relationships you are confident about
+- Do not fabricate relationships — if no meaningful relationship exists, return empty array
+- Each relationship needs a clear reason
+- Confidence levels: high (ID match), medium (name match + context), low (similarity only)
+
+Output format: Return a JSON array of relationship objects, each with:
+- sourceDocId, targetDocId, relationshipType, confidence, reason
+Return empty array [] if no relationships found."""
+
+
 def create_agents():
     endpoint = os.environ.get("AI_FOUNDRY_ENDPOINT", "")
     project_name = os.environ.get("AI_FOUNDRY_PROJECT_NAME", "")
@@ -108,6 +164,30 @@ def create_agents():
             instructions=ANSWER_ANALYSIS_INSTRUCTIONS,
         ),
         description="Evaluates sufficiency of answers to follow-up questions",
+    )
+    print(f"  Created version {agent.version} (id: {agent.id})")
+
+    # Create/update doc-classifier-agent
+    print("Creating doc-classifier-agent...")
+    agent = project.agents.create_version(
+        agent_name="doc-classifier-agent",
+        definition=PromptAgentDefinition(
+            model="gpt-41-mini",
+            instructions=DOC_CLASSIFIER_INSTRUCTIONS,
+        ),
+        description="Classifies manufacturing documents into process stages and extracts metadata",
+    )
+    print(f"  Created version {agent.version} (id: {agent.id})")
+
+    # Create/update relationship-analyzer-agent
+    print("Creating relationship-analyzer-agent...")
+    agent = project.agents.create_version(
+        agent_name="relationship-analyzer-agent",
+        definition=PromptAgentDefinition(
+            model="gpt-41-mini",
+            instructions=RELATIONSHIP_ANALYZER_INSTRUCTIONS,
+        ),
+        description="Analyzes relationships between manufacturing documents",
     )
     print(f"  Created version {agent.version} (id: {agent.id})")
 

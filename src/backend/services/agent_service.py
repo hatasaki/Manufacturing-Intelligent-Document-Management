@@ -91,3 +91,63 @@ def analyze_answer(question: str, answer: str, lang: str = "en") -> dict:
         return json.loads(output_text)
 
     return retry_with_backoff(call_agent, max_retries=3, base_delay=1.0)
+
+
+def classify_document(extracted_text: str, lang: str = "en") -> dict:
+    """Classify a document using the doc-classifier-agent."""
+    def call_agent():
+        project_client = _get_project_client()
+        openai_client = project_client.get_openai_client()
+        agent = project_client.agents.get(agent_name="doc-classifier-agent")
+
+        input_text = extracted_text
+        if lang == "ja":
+            input_text = (
+                "[INSTRUCTION: Generate title, summary, subsystem, moduleName, and productFamily in Japanese.]\n\n"
+                + input_text
+            )
+
+        conversation = openai_client.conversations.create()
+        response = openai_client.responses.create(
+            conversation=conversation.id,
+            input=input_text,
+            extra_body={"agent_reference": {"name": agent.name, "type": "agent_reference"}},
+        )
+
+        output_text = response.output_text
+        if output_text.startswith("```"):
+            lines = output_text.split("\n")
+            lines = [l for l in lines if not l.startswith("```")]
+            output_text = "\n".join(lines)
+        return json.loads(output_text)
+
+    return retry_with_backoff(call_agent, max_retries=3, base_delay=1.0)
+
+
+def analyze_document_relationships(source: dict, candidates: list, lang: str = "en") -> list:
+    """Analyze relationships between source and candidate documents."""
+    def call_agent():
+        project_client = _get_project_client()
+        openai_client = project_client.get_openai_client()
+        agent = project_client.agents.get(agent_name="relationship-analyzer-agent")
+
+        payload = {"sourceDocument": source, "candidateDocuments": candidates}
+        if lang == "ja":
+            payload["instruction"] = "Write all reason fields in Japanese."
+        prompt = json.dumps(payload)
+
+        conversation = openai_client.conversations.create()
+        response = openai_client.responses.create(
+            conversation=conversation.id,
+            input=prompt,
+            extra_body={"agent_reference": {"name": agent.name, "type": "agent_reference"}},
+        )
+
+        output_text = response.output_text
+        if output_text.startswith("```"):
+            lines = output_text.split("\n")
+            lines = [l for l in lines if not l.startswith("```")]
+            output_text = "\n".join(lines)
+        return json.loads(output_text)
+
+    return retry_with_backoff(call_agent, max_retries=3, base_delay=1.0)

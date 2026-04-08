@@ -64,6 +64,7 @@ def get_channel_files(team_id, channel_id):
                     "driveItemId": drive_item_id,
                     "driveId": drive_id,
                     "docId": doc["id"] if doc else None,
+                    "webUrl": item.get("webUrl", ""),
                 })
         return jsonify(files)
     except Exception as e:
@@ -140,11 +141,17 @@ def upload_file(team_id, channel_id):
             "siteId": site_id,
             "driveItemId": drive_item_id,
             "driveItemPath": drive_item_path,
+            "fileName": file.filename,
+            "webUrl": uploaded.get("webUrl", ""),
             "analysis": None,
             "followUpQuestions": [],
             "questionHistory": question_history,
             "relatedDocuments": [],
             "processingStatus": "analyzing",
+            "documentClassification": None,
+            "relationships": [],
+            "relationshipStatus": None,
+            "relationshipError": None,
             "version": 1,
             "createdInDbAt": now.isoformat(),
             "updatedInDbAt": now.isoformat(),
@@ -230,6 +237,18 @@ def _process_document_background(app, doc_id, channel_id, file_content, question
             cosmos.upsert_document(doc)
             logger.info("Background processing completed for %s", doc_id)
 
+            # Enqueue relationship extraction (sequential via worker thread)
+            try:
+                from services import relationship_service
+                doc = cosmos.get_document(doc_id, channel_id)
+                if doc:
+                    doc["relationshipStatus"] = "queued"
+                    doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                    cosmos.upsert_document(doc)
+                relationship_service.enqueue_relationship_extraction(app, doc_id, channel_id)
+            except Exception as re:
+                logger.error("Failed to enqueue relationship extraction for %s: %s", doc_id, re)
+
         except Exception as e:
             logger.error("Background question generation failed for %s: %s", doc_id, e)
             doc = cosmos.get_document(doc_id, channel_id)
@@ -238,3 +257,12 @@ def _process_document_background(app, doc_id, channel_id, file_content, question
                 doc["processingError"] = f"Question generation failed: {e}"
                 doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
                 cosmos.upsert_document(doc)
+
+                # Still enqueue relationship extraction even if questions failed
+                try:
+                    from services import relationship_service
+                    doc["relationshipStatus"] = "queued"
+                    cosmos.upsert_document(doc)
+                    relationship_service.enqueue_relationship_extraction(app, doc_id, channel_id)
+                except Exception as re:
+                    logger.error("Failed to enqueue relationship extraction for %s: %s", doc_id, re)

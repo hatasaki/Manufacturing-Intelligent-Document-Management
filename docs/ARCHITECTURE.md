@@ -12,7 +12,8 @@ graph TB
         FE_AUTH["auth.js<br/>MSAL.js v2.35.0<br/>Authorization Code Flow + PKCE"]
         FE_APP["app.js<br/>アプリケーション制御"]
         FE_API["api.js<br/>API クライアント"]
-        FE_UI["ui.js<br/>UI レンダリング"]
+        FE_UI["ui.js<br/>UI レンダリング<br/>(タブ UI + ペインリサイズ)"]
+        FE_I18N["i18n.js<br/>多言語対応 (EN/JP)"]
         FE_CONFIG["config.js<br/>MSAL / API 設定"]
     end
 
@@ -22,6 +23,7 @@ graph TB
             AUTH_ROUTE["auth_routes.py<br/>GET /api/me"]
             TEAMS_ROUTE["teams_routes.py<br/>GET /api/teams/channels<br/>GET /api/teams/.../files<br/>POST /api/teams/.../files"]
             DOC_ROUTE["document_routes.py<br/>GET /api/documents/{id}<br/>POST .../generate-questions<br/>POST .../answer"]
+            REL_ROUTE["relationship_routes.py<br/>GET /api/documents/{id}/relationships"]
         end
         subgraph "Services"
             AUTH_SVC["auth_service.py<br/>MSAL OBO + リトライ"]
@@ -29,6 +31,7 @@ graph TB
             COSMOS_SVC["cosmos_service.py<br/>Cosmos DB CRUD"]
             CU_SVC["content_understanding_service.py<br/>ドキュメント分析"]
             AGENT_SVC["agent_service.py<br/>Foundry Agent 呼び出し"]
+            REL_SVC["relationship_service.py<br/>関係抽出 (逐次キュー)"]
         end
     end
 
@@ -39,8 +42,10 @@ graph TB
         COSMOS["Azure Cosmos DB<br/>(Serverless / NoSQL)"]
         FOUNDRY["Azure AI Foundry<br/>(AIServices)"]
         CU["Content Understanding<br/>(prebuilt-document /<br/>prebuilt-documentSearch)"]
-        AGENT_Q["question-generator-agent<br/>(Prompt Agent)"]
-        AGENT_A["answer-analysis-agent<br/>(Prompt Agent)"]
+        AGENT_Q["質問生成エージェント<br/>(question-generator-agent)"]
+        AGENT_A["回答分析エージェント<br/>(answer-analysis-agent)"]
+        AGENT_C["文書分類エージェント<br/>(doc-classifier-agent)"]
+        AGENT_R["関係分析エージェント<br/>(relationship-analyzer-agent)"]
         GPT["gpt-4.1-mini<br/>Model Deployment"]
     end
 
@@ -51,10 +56,12 @@ graph TB
     BE_APP --> AUTH_ROUTE
     BE_APP --> TEAMS_ROUTE
     BE_APP --> DOC_ROUTE
+    BE_APP --> REL_ROUTE
 
     AUTH_ROUTE --> AUTH_SVC
     TEAMS_ROUTE --> AUTH_SVC
     DOC_ROUTE --> AUTH_SVC
+    REL_ROUTE --> AUTH_SVC
 
     AUTH_SVC -->|"OBO フロー"| ENTRA
     AUTH_SVC -->|"Graph Token"| GRAPH_SVC
@@ -65,10 +72,16 @@ graph TB
     DOC_ROUTE --> CU_SVC
     DOC_ROUTE --> AGENT_SVC
     DOC_ROUTE --> COSMOS_SVC
+    REL_ROUTE --> COSMOS_SVC
+    REL_ROUTE --> GRAPH_SVC
     TEAMS_ROUTE --> GRAPH_SVC
     TEAMS_ROUTE --> CU_SVC
     TEAMS_ROUTE --> AGENT_SVC
     TEAMS_ROUTE --> COSMOS_SVC
+    TEAMS_ROUTE --> REL_SVC
+
+    REL_SVC --> AGENT_SVC
+    REL_SVC --> COSMOS_SVC
 
     CU_SVC -->|"DefaultAzureCredential"| CU
     AGENT_SVC -->|"DefaultAzureCredential"| FOUNDRY
@@ -76,8 +89,12 @@ graph TB
 
     FOUNDRY --> AGENT_Q
     FOUNDRY --> AGENT_A
+    FOUNDRY --> AGENT_C
+    FOUNDRY --> AGENT_R
     AGENT_Q --> GPT
     AGENT_A --> GPT
+    AGENT_C --> GPT
+    AGENT_R --> GPT
     CU --> GPT
 ```
 
@@ -180,9 +197,14 @@ flowchart TD
     GEN_Q --> GEN_OK{質問生成成功?}
     GEN_OK -->|No| BG_ERR2[processingStatus: completed<br/>processingError に詳細記録]
     GEN_OK -->|Yes| SAVE_Q[9. 質問を Cosmos DB に保存<br/>processingStatus: completed]
+    SAVE_Q --> REL_QUEUE[10. 関係抽出をキューに投入<br/>relationshipStatus: queued]
 
     POLL -->|completed| MODAL([フォローアップ質問モーダル表示])
     POLL -->|error| TOAST[エラートースト表示]
+    MODAL -->|全質問完了| AUTO_SELECT[アップロードファイルを自動選択<br/>右ペインに詳細表示]
+
+    REL_QUEUE -.->|ワーカースレッド| REL_PROCESS[11. 文書分類 + 関係推定<br/>relationship-analyzer-agent]
+    REL_PROCESS --> REL_SAVE[12. 関係を双方向保存<br/>relationshipStatus: completed]
 
     style REJECT fill:#ffcccc
     style BG_ERR1 fill:#ffcccc
@@ -246,13 +268,25 @@ graph LR
             AA["answer-analysis-agent"]
             AA_INST["Instructions:<br/>品質保証専門家として<br/>回答の十分性を判定"]
         end
+        subgraph "Prompt Agent 3"
+            DC["doc-classifier-agent"]
+            DC_INST["Instructions:<br/>文書を6段階に分類し<br/>メタデータを抽出"]
+        end
+        subgraph "Prompt Agent 4"
+            RA["relationship-analyzer-agent"]
+            RA_INST["Instructions:<br/>文書間の関係を<br/>3種類で判定"]
+        end
         MODEL["gpt-4.1-mini<br/>(デプロイメント名: gpt-41-mini)"]
     end
 
     QG --> MODEL
     AA --> MODEL
+    DC --> MODEL
+    RA --> MODEL
     QG_INST -.-> QG
     AA_INST -.-> AA
+    DC_INST -.-> DC
+    RA_INST -.-> RA
 ```
 
 ### 6.2 question-generator-agent (質問生成エージェント)
@@ -500,6 +534,8 @@ sequenceDiagram
     Hook->>Script: 6. python scripts/create_agents.py
     Script->>Azure: agents.create_version("question-generator-agent", ...)
     Script->>Azure: agents.create_version("answer-analysis-agent", ...)
+    Script->>Azure: agents.create_version("doc-classifier-agent", ...)
+    Script->>Azure: agents.create_version("relationship-analyzer-agent", ...)
     Script-->>Hook: エージェント作成完了
     Hook-->>AZD: デプロイ完了
 ```
@@ -548,6 +584,10 @@ flowchart LR
     GENQ -->|"upsert_document"| COSMOS
     ANSQ -->|"analyze_answer"| AGENT
     ANSQ -->|"upsert_document"| COSMOS
+
+    REL["GET /api/documents/{docId}/relationships"]
+    REL -->|"関係情報取得"| COSMOS
+    REL -->|"ファイル名/URL補完"| GRAPH
 ```
 
 ---

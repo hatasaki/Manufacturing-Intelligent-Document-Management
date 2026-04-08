@@ -8,6 +8,7 @@ from services.cosmos_service import CosmosService
 from routes.auth_routes import auth_bp
 from routes.teams_routes import teams_bp
 from routes.document_routes import document_bp
+from routes.relationship_routes import relationship_bp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,6 +24,11 @@ app.config["COSMOS_SERVICE"] = cosmos_service
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(teams_bp, url_prefix="/api")
 app.register_blueprint(document_bp, url_prefix="/api")
+app.register_blueprint(relationship_bp, url_prefix="/api")
+
+# Initialize relationship extraction worker
+from services import relationship_service
+relationship_service.init_worker(app)
 
 
 @app.route("/")

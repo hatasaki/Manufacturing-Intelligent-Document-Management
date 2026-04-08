@@ -38,59 +38,252 @@ export function renderFileList(files, containerEl, onSelect) {
         item.className = "file-item";
         item.dataset.docId = f.docId || "";
         item.dataset.driveItemId = f.driveItemId || "";
+
         item.innerHTML = `
             <span class="file-icon">📄</span>
-            <span class="file-name">${escapeHtml(f.name)}</span>
+            <span class="file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
             <span class="file-date">${formatDate(f.lastModifiedDateTime)}</span>
         `;
+        // Single click: select file
         item.addEventListener("click", () => {
             containerEl.querySelectorAll(".file-item").forEach((el) => el.classList.remove("active"));
             item.classList.add("active");
             onSelect(f);
         });
+        // Double click: open SharePoint URL in new tab
+        if (f.webUrl) {
+            item.addEventListener("dblclick", () => {
+                window.open(f.webUrl, "_blank", "noopener");
+            });
+        }
         containerEl.appendChild(item);
     });
 }
 
 export function renderFileDetails(doc, detailsEl) {
     detailsEl.innerHTML = `
-        <div class="detail-header">
-            <div class="detail-doc-id">${escapeHtml(doc.id)}</div>
-            <div class="detail-filename">${escapeHtml(doc.fileName || "—")}</div>
-            <div class="detail-meta">
-                <div class="detail-meta-item">
-                    <label>${escapeHtml(t("labelCreated"))}</label>
-                    <span>${formatDate(doc.createdAt)}</span>
-                </div>
-                <div class="detail-meta-item">
-                    <label>${escapeHtml(t("labelCreatedBy"))}</label>
-                    <span>${escapeHtml(doc.createdBy || "—")}</span>
-                </div>
-                <div class="detail-meta-item">
-                    <label>${escapeHtml(t("labelLastModified"))}</label>
-                    <span>${formatDate(doc.lastModifiedAt)}</span>
-                </div>
-                <div class="detail-meta-item">
-                    <label>${escapeHtml(t("labelLastModifiedBy"))}</label>
-                    <span>${escapeHtml(doc.lastModifiedBy || "—")}</span>
+        <div class="tab-bar">
+            <button class="tab-btn tab-active" data-tab="details">${escapeHtml(t("tabDetails"))}</button>
+            <button class="tab-btn" data-tab="relationships">${escapeHtml(t("tabRelationships"))}</button>
+        </div>
+        <div class="tab-content tab-details" id="tab-details">
+            <div class="detail-header">
+                <div class="detail-doc-id">${escapeHtml(doc.id)}</div>
+                <div class="detail-filename">${escapeHtml(doc.fileName || "—")}</div>
+                <div class="detail-meta">
+                    <div class="detail-meta-item">
+                        <label>${escapeHtml(t("labelCreated"))}</label>
+                        <span>${formatDate(doc.createdAt)}</span>
+                    </div>
+                    <div class="detail-meta-item">
+                        <label>${escapeHtml(t("labelCreatedBy"))}</label>
+                        <span>${escapeHtml(doc.createdBy || "—")}</span>
+                    </div>
+                    <div class="detail-meta-item">
+                        <label>${escapeHtml(t("labelLastModified"))}</label>
+                        <span>${formatDate(doc.lastModifiedAt)}</span>
+                    </div>
+                    <div class="detail-meta-item">
+                        <label>${escapeHtml(t("labelLastModifiedBy"))}</label>
+                        <span>${escapeHtml(doc.lastModifiedBy || "—")}</span>
+                    </div>
                 </div>
             </div>
+            <div class="analysis-section">
+                <button id="btn-show-analysis" class="btn btn-analysis" ${doc.analysis ? '' : 'disabled'}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    ${escapeHtml(t("btnShowAnalysis"))}
+                </button>
+            </div>
+            <div class="questions-section">
+                <h3>${escapeHtml(t("followUpQuestionsAndAnswers"))}</h3>
+                ${renderQuestionsList(doc.followUpQuestions || [])}
+            </div>
         </div>
-        <div class="analysis-section">
-            <button id="btn-show-analysis" class="btn btn-analysis" ${doc.analysis ? '' : 'disabled'}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                ${escapeHtml(t("btnShowAnalysis"))}
-            </button>
-        </div>
-        <div class="questions-section">
-            <h3>${escapeHtml(t("followUpQuestionsAndAnswers"))}</h3>
-            ${renderQuestionsList(doc.followUpQuestions || [])}
+        <div class="tab-content tab-relationships hidden" id="tab-relationships">
+            <div id="relationships-content"></div>
         </div>
     `;
+
+    // Tab switching
+    detailsEl.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            detailsEl.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            btn.classList.add('tab-active');
+            detailsEl.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            const target = detailsEl.querySelector(`#tab-${btn.dataset.tab}`);
+            if (target) target.classList.remove('hidden');
+
+            // Lazy-load enriched relationship data on first tab open
+            if (btn.dataset.tab === 'relationships') {
+                const container = document.getElementById('relationships-content');
+                if (container && container.dataset.needsEnrich === 'true' && container.dataset.docId) {
+                    container.dataset.needsEnrich = 'false';
+                    if (typeof window._loadEnrichedRelationships === 'function') {
+                        window._loadEnrichedRelationships(container.dataset.docId, container.dataset.channelId);
+                    }
+                }
+            }
+        });
+    });
+
     const btnAnalysis = document.getElementById('btn-show-analysis');
     if (btnAnalysis && doc.analysis) {
         btnAnalysis.addEventListener('click', () => showAnalysisModal(doc.analysis));
     }
+
+    // Render initial relationships content from doc data
+    // Note: doc from GET /api/documents/{doc_id} has raw relationships without targetTitle/targetStage.
+    // The Relationships tab will fetch enriched data via the dedicated relationships API when the tab is clicked.
+    _renderRelationshipsInitial(doc);
+}
+
+function _renderRelationshipsInitial(doc) {
+    const container = document.getElementById('relationships-content');
+    if (!container) return;
+
+    const status = doc.relationshipStatus;
+
+    // If still processing, show spinner
+    if (status === "queued" || status === "extracting") {
+        renderRelationshipsContent(doc);
+        return;
+    }
+
+    // If error, show error
+    if (status === "error") {
+        renderRelationshipsContent(doc);
+        return;
+    }
+
+    // If completed or null, show a "click to load" or auto-load placeholder
+    // We set a flag to lazy-load enriched data when tab is first opened
+    container.dataset.needsEnrich = "true";
+    container.dataset.docId = doc.id;
+    container.dataset.channelId = doc.channelId || "";
+
+    // Show a lightweight preview from raw doc data
+    renderRelationshipsContent(doc);
+}
+
+const STAGE_LABELS = {
+    customer_requirements: "relStageCustomerRequirements",
+    requirements_definition: "relStageRequirementsDefinition",
+    basic_design: "relStageBasicDesign",
+    detailed_design: "relStageDetailedDesign",
+    module_design: "relStageModuleDesign",
+    implementation: "relStageImplementation",
+};
+
+const RELATIONSHIP_LABELS = {
+    derived_from: "relDerivedFrom",
+    decomposed_to: "relDecomposedTo",
+    reused_from: "relReusedFrom",
+    references: "relReferences",
+};
+
+function stageLabel(stage) {
+    return t(STAGE_LABELS[stage] || stage || "—");
+}
+
+function relationshipLabel(type) {
+    return t(RELATIONSHIP_LABELS[type] || type || "—");
+}
+
+export function renderRelationshipsContent(doc) {
+    const container = document.getElementById('relationships-content');
+    if (!container) return;
+
+    const status = doc.relationshipStatus;
+    const classification = doc.documentClassification;
+    const relationships = doc.relationships || [];
+
+    if (status === "queued" || status === "extracting") {
+        container.innerHTML = `
+            <div class="rel-loading">
+                <div class="spinner"></div>
+                <p>${escapeHtml(t("relExtracting"))}</p>
+            </div>`;
+        return;
+    }
+
+    if (status === "error") {
+        container.innerHTML = `
+            <div class="rel-error">
+                <span class="rel-error-icon">⚠️</span>
+                <span>${escapeHtml(t("relExtractionFailed"))}: ${escapeHtml(doc.relationshipError || "")}</span>
+            </div>`;
+        return;
+    }
+
+    let classificationHtml = '';
+    if (classification) {
+        classificationHtml = `
+            <div class="rel-classification">
+                <h4>${escapeHtml(t("relDocClassification"))}</h4>
+                <div class="rel-classification-meta">
+                    <span><strong>${escapeHtml(t("relStage"))}:</strong> ${escapeHtml(stageLabel(classification.stage))}</span>
+                    ${classification.subsystem ? `<span><strong>${escapeHtml(t("relSubsystem"))}:</strong> ${escapeHtml(classification.subsystem)}</span>` : ''}
+                    ${classification.moduleName ? `<span><strong>${escapeHtml(t("relModule"))}:</strong> ${escapeHtml(classification.moduleName)}</span>` : ''}
+                </div>
+            </div>`;
+    }
+
+    let relationshipsHtml = '';
+    if (relationships.length === 0) {
+        relationshipsHtml = `<p class="placeholder-text">${escapeHtml(t("relNoRelationships"))}</p>`;
+    } else {
+        // Group relationships by target document
+        const grouped = {};
+        for (const rel of relationships) {
+            const key = rel.targetDocId || "unknown";
+            if (!grouped[key]) {
+                grouped[key] = {
+                    targetDocId: rel.targetDocId || "",
+                    targetFileName: rel.targetFileName || rel.targetTitle || rel.targetDocId || "—",
+                    targetStage: rel.targetStage || null,
+                    targetWebUrl: rel.targetWebUrl || "",
+                    relations: [],
+                };
+            }
+            grouped[key].relations.push(rel);
+        }
+
+        relationshipsHtml = Object.values(grouped).map(group => {
+            const fileNameHtml = group.targetWebUrl
+                ? `<a href="${escapeHtml(group.targetWebUrl)}" target="_blank" rel="noopener">${escapeHtml(group.targetFileName)}</a>`
+                : escapeHtml(group.targetFileName);
+
+            const relationsHtml = group.relations.map(rel => `
+                <div class="rel-relation-item">
+                    <span class="rel-relation-type">${escapeHtml(relationshipLabel(rel.relationshipType))}</span>
+                    ${rel.confidence ? `<span class="rel-confidence rel-confidence-${escapeHtml(rel.confidence)}">${escapeHtml(rel.confidence)}</span>` : ''}
+                    ${rel.reason ? `<div class="rel-relation-reason">${escapeHtml(rel.reason)}</div>` : ''}
+                </div>
+            `).join('');
+
+            return `
+                <div class="rel-card">
+                    <div class="rel-card-target">📄 ${fileNameHtml} <span class="rel-card-doc-id">(${escapeHtml(group.targetDocId)})</span></div>
+                    ${group.targetStage ? `<div class="rel-card-meta"><span>${escapeHtml(t("relStage"))}: ${escapeHtml(stageLabel(group.targetStage))}</span></div>` : ''}
+                    <div class="rel-relations-list">${relationsHtml}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    container.innerHTML = `
+        ${classificationHtml}
+        <div class="rel-list">
+            <h4>${escapeHtml(t("relRelatedDocuments"))}</h4>
+            ${relationshipsHtml}
+        </div>`;
+}
+
+export function updateRelationshipsFromApi(data) {
+    const container = document.getElementById('relationships-content');
+    if (!container) return;
+    renderRelationshipsContent(data);
 }
 
 function renderQuestionsList(questions) {
@@ -303,6 +496,39 @@ function showAnalysisModal(analysis) {
 
 export function hideAnalysisModal() {
     document.getElementById('analysis-modal').classList.add('hidden');
+}
+
+export function initPaneDivider() {
+    const divider = document.getElementById('pane-divider');
+    const paneLeft = document.querySelector('.pane-left');
+    if (!divider || !paneLeft) return;
+
+    let isDragging = false;
+
+    divider.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        isDragging = true;
+        divider.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const containerRect = paneLeft.parentElement.getBoundingClientRect();
+        let newWidth = e.clientX - containerRect.left;
+        newWidth = Math.max(200, Math.min(newWidth, containerRect.width * 0.6));
+        paneLeft.style.width = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            divider.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
 }
 
 export { escapeHtml as escapeHtmlPublic };

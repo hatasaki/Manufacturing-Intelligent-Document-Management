@@ -42,7 +42,20 @@ def get_document(doc_id):
                         "createdBy": item.get("createdBy", {}).get("user", {}).get("displayName", ""),
                         "lastModifiedAt": item.get("lastModifiedDateTime", ""),
                         "lastModifiedBy": item.get("lastModifiedBy", {}).get("user", {}).get("displayName", ""),
+                        "webUrl": item.get("webUrl", ""),
                     }
+                    # Backfill fileName/webUrl to Cosmos if missing
+                    if not doc.get("fileName") or not doc.get("webUrl"):
+                        updated = False
+                        if not doc.get("fileName") and file_meta["fileName"]:
+                            doc["fileName"] = file_meta["fileName"]
+                            updated = True
+                        if not doc.get("webUrl") and file_meta["webUrl"]:
+                            doc["webUrl"] = file_meta["webUrl"]
+                            updated = True
+                        if updated:
+                            doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                            cosmos.upsert_document(doc)
                 except Exception as e:
                     logger.warning("Could not get file metadata from Graph: %s", e)
 
@@ -55,6 +68,10 @@ def get_document(doc_id):
             "processingError": doc.get("processingError"),
             "followUpQuestions": doc.get("followUpQuestions", []),
             "questionHistory": doc.get("questionHistory", []),
+            "documentClassification": doc.get("documentClassification"),
+            "relationships": doc.get("relationships", []),
+            "relationshipStatus": doc.get("relationshipStatus"),
+            "relationshipError": doc.get("relationshipError"),
         })
 
     except Exception as e:
