@@ -98,3 +98,76 @@ def get_relationships(doc_id):
     except Exception as e:
         logger.error("Failed to get relationships for %s: %s", doc_id, e)
         return jsonify({"error": "Failed to retrieve relationships"}), 500
+
+
+@relationship_bp.route("/channels/<channel_id>/graph", methods=["GET"])
+@require_auth
+def get_channel_graph(channel_id):
+    """Get all documents and relationships in a channel for graph display."""
+    cosmos = current_app.config["COSMOS_SERVICE"]
+
+    try:
+        all_docs = cosmos.query_documents(channel_id)
+
+        nodes = []
+        edges = []
+
+        for doc in all_docs:
+            # Build node info
+            filename = doc.get("fileName")
+            web_url = doc.get("webUrl", "")
+            cls = doc.get("documentClassification") or {}
+            stage = cls.get("stage", "")
+
+            # Backfill fileName/webUrl if missing
+            if not filename or not web_url:
+                drive_item_path = doc.get("driveItemPath", "")
+                if drive_item_path:
+                    parts = drive_item_path.strip("/").split("/")
+                    if len(parts) >= 4:
+                        try:
+                            item = graph_service.get_drive_item(parts[1], parts[3])
+                            if not filename:
+                                filename = item.get("name", "")
+                            if not web_url:
+                                web_url = item.get("webUrl", "")
+                            # Persist backfill
+                            updated = False
+                            if not doc.get("fileName") and filename:
+                                doc["fileName"] = filename
+                                updated = True
+                            if not doc.get("webUrl") and web_url:
+                                doc["webUrl"] = web_url
+                                updated = True
+                            if updated:
+                                from datetime import datetime, timezone
+                                doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                                cosmos.upsert_document(doc)
+                        except Exception:
+                            pass
+
+            nodes.append({
+                "docId": doc["id"],
+                "fileName": filename or doc["id"],
+                "webUrl": web_url,
+                "stage": stage,
+            })
+
+            # Collect edges from this doc's relationships
+            for rel in doc.get("relationships", []):
+                # Only emit "forward" edges to avoid duplicates
+                rel_type = rel.get("relationshipType", "")
+                if rel_type in ("depends_on", "refers_to"):
+                    edges.append({
+                        "from": doc["id"],
+                        "to": rel.get("targetDocId", ""),
+                        "relationshipType": rel_type,
+                        "confidence": rel.get("confidence", "low"),
+                        "reason": rel.get("reason", ""),
+                    })
+
+        return jsonify({"nodes": nodes, "edges": edges})
+
+    except Exception as e:
+        logger.error("Failed to get channel graph for %s: %s", channel_id, e)
+        return jsonify({"error": "Failed to retrieve channel graph"}), 500

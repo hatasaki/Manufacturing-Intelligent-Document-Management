@@ -588,6 +588,10 @@ flowchart LR
     REL["GET /api/documents/{docId}/relationships"]
     REL -->|"関係情報取得"| COSMOS
     REL -->|"ファイル名/URL補完"| GRAPH
+
+    CHGRAPH["GET /api/channels/{channelId}/graph"]
+    CHGRAPH -->|"全ドキュメント+全関係取得"| COSMOS
+    CHGRAPH -->|"ファイル名/URL補完"| GRAPH
 ```
 
 ---

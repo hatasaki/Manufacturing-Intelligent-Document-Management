@@ -358,6 +358,7 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
 | メソッド | パス | 説明 |
 |---------|------|------|
 | `GET` | `/api/documents/{doc_id}/relationships?channelId={channelId}` | ドキュメントの関係情報取得 |
+| `GET` | `/api/channels/{channel_id}/graph` | チャネル全体のグラフデータ取得 |
 
 ### `GET /api/documents/{doc_id}/relationships`
 
@@ -621,15 +622,58 @@ relationship_service.init_worker(app)
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `src/frontend/js/ui.js` | タブ UI の描画、Trace タブの表示・更新ロジック、ペインリサイズ機能、ファイルダブルクリックで SharePoint オープン |
-| `src/frontend/js/api.js` | `getDocumentRelationships()` API 呼出し関数の追加 |
-| `src/frontend/css/styles.css` | タブ UI スタイル、関係カードスタイル |
+| `src/frontend/js/ui.js` | タブ UI の描画 (Details/Trace/Graph)、Trace タブの表示・更新ロジック、Graph タブの SVG グラフ描画・フィルタ・ドラッグスクロール、ペインリサイズ機能、ファイルダブルクリックで SharePoint オープン |
+| `src/frontend/js/api.js` | `getDocumentRelationships()` および `getChannelGraph()` API 呼出し関数の追加 |
+| `src/frontend/css/styles.css` | タブ UI スタイル、関係カードスタイル、グラフフィルタ・ビューポートスタイル |
 | `src/frontend/index.html` | タブ構造の HTML 追加 |
 | `src/frontend/js/i18n.js` | 関係抽出関連の翻訳キー追加 |
 
-### Relationships タブのポーリング
+### Trace タブのポーリング
 
 `relationshipStatus` が `"queued"` または `"extracting"` の場合、5 秒間隔で `GET /api/documents/{doc_id}/relationships` をポーリングし、`"completed"` または `"error"` になるまで待機する (最大 5 分)。
+
+### Graph タブ
+
+Graph タブはチャネル内の全ファイルの依存関係をグラフ図として視覚的に表示する。
+
+**データ取得**: `GET /api/channels/{channel_id}/graph` — チャネル内の全ドキュメントと全関係 (forward edges のみ) を返却
+
+**レスポンス** (200):
+```json
+{
+  "nodes": [
+    {"docId": "doc-xxx", "fileName": "design.pdf", "webUrl": "https://...", "stage": "detailed_design"}
+  ],
+  "edges": [
+    {"from": "doc-xxx", "to": "doc-yyy", "relationshipType": "depends_on", "confidence": "high", "reason": "..."}
+  ]
+}
+```
+
+**レイアウト**:
+- 左 (上流) → 右 (下流) のステージ別列配置 (6 段階の工程ステップ順)
+- 各列にステージ名ヘッダーとガイドライン (破線)
+- ノード間・ステージ間は十分な間隔 (NODE_W=200, NODE_H=48, PAD_X=300, PAD_Y=100)
+- SVG はグラフサイズに応じた固定幅・高さで描画され、viewport 内でスクロール可能
+
+**ノード**:
+- 各ファイルをノードとして描画 (ファイル名 + Stage)
+- 選択中ファイルは青色ハイライト、中心にスクロール
+- ダブルクリックで SharePoint URL を新しいタブでオープン
+
+**エッジ**:
+- 依存線: 実線 (青矢印)、参照線: 破線 (黄矢印)
+- 選択中ファイルのエッジは太く色付きで強調、他のエッジはグレーで薄く表示
+- ベジェ曲線で描画 (線の重なり軽減)、同ステージ内は右側アーク
+
+**フィルタ**:
+- 関係種別: Dependency / Reference のチェックボックス
+- Confidence: High / Medium / Low のチェックボックス
+- フィルタ変更時にリアルタイムで再描画
+
+**スクロール**:
+- マウスドラッグで全方向にスクロール可能 (viewport の scrollLeft/scrollTop を操作)
+- カーソル: grab ↔ grabbing
 
 ---
 

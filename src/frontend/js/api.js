@@ -82,3 +82,7 @@ export async function getDocumentRelationships(docId, channelId) {
         `/documents/${encodeURIComponent(docId)}/relationships?channelId=${encodeURIComponent(channelId)}`
     );
 }
+
+export async function getChannelGraph(channelId) {
+    return apiRequest(`/channels/${encodeURIComponent(channelId)}/graph`);
+}

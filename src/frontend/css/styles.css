@@ -868,6 +868,51 @@ body {
     font-size: 18px;
 }
 
+/* Graph Tab */
+.graph-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+}
+
+.graph-filter-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.graph-filter-cb {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.graph-filter-sep {
+    color: var(--border);
+    margin: 0 4px;
+}
+
+.graph-viewport {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: calc(100vh - var(--header-height) - 120px);
+    overflow: auto;
+    position: relative;
+    cursor: grab;
+}
+
+.graph-viewport svg {
+    display: block;
+}
+
 .rel-classification {
     background: var(--surface);
     border-radius: var(--radius);

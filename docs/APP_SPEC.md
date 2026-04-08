@@ -96,9 +96,10 @@
 
 - 左右ペインの境界はドラッグでリサイズ可能 (ペインディバイダー)
 - 左ペインのファイル名はシングルクリックで選択、ダブルクリックで SharePoint URL を新しいタブでオープン
-- 右ペインは Details / Trace の 2 タブ構成
+- 右ペインは Details / Trace / Graph の 3 タブ構成
   - **Details タブ**: メタデータ・分析結果ボタン・フォローアップ質問
   - **Trace タブ**: 文書分類情報・関連ドキュメント一覧 (詳細は RELATIONSHIP_SPEC.md 参照)
+  - **Graph タブ**: チャネル全体の依存関係グラフ図 (左→右のステージ別配置、フィルタ、ドラッグスクロール)
 - ファイルアップロード後のフォローアップ質問完了時に、アップロードしたファイルを自動選択して詳細を右ペインに表示
 
 ```
@@ -375,6 +376,7 @@
 | `POST` | `/api/teams/{team_id}/channels/{channel_id}/files` | ファイルアップロード (PDF のみ、非同期処理) |
 | `GET` | `/api/documents/{doc_id}?channelId={channelId}` | ドキュメント詳細取得 (Cosmos DB + Graph API) |
 | `GET` | `/api/documents/{doc_id}/relationships?channelId={channelId}` | ドキュメント関係情報取得 |
+| `GET` | `/api/channels/{channel_id}/graph` | チャネル全体のグラフデータ取得 |
 | `POST` | `/api/documents/{doc_id}/generate-questions` | フォローアップ質問生成 |
 | `POST` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 質問への回答送信・分析 (最大 3 往復) |
 | `GET` | `/api/me` | ログインユーザー情報取得 |

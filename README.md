@@ -1,17 +1,93 @@
 # Manufacturing Intelligent Document Management
 
-Manufacturing document management web app with Teams/SharePoint integration, AI-powered follow-up questions to extract implicit knowledge, and automated document traceability (upstream/downstream dependency tracking).
+製造業の設計開発プロセス（V モデル）の**左側（設計フェーズ）**に特化したドキュメント管理 Web アプリケーション。Teams/SharePoint 連携によるファイル管理、AI によるフォローアップ質問で暗黙知を抽出・蓄積し、ドキュメント間の上流/下流の依存関係を自動トレースする。
+
+### V モデルにおけるカバー範囲
+
+```
+顧客要求・市場要求 ──────────────────────── 受入テスト
+  │                                          │
+  ▼                                          │
+要件定義 ────────────────────────── システムテスト
+  │                                    │
+  ▼                                    │
+基本設計 ──────────────────── 結合テスト
+  │                              │
+  ▼                              │
+詳細設計 ────────────── 単体テスト
+  │                        │
+  ▼                        │
+モジュール設計・実装準備    │
+  │                        │
+  ▼                        │
+実装 ──────────────────┘
+
+◀━━━━━━━━━ 本アプリのカバー範囲 ━━━━━━━━━▶
+（左側：設計フェーズのドキュメントトレーサビリティ）
+```
+
+## Key Features
+
+- **Teams/SharePoint 連携**: チャネルのファイルを直接管理・アップロード
+- **AI ドキュメント分析**: Content Understanding で PDF を自動解析
+- **暗黙知の抽出**: AI が設計文書の不足情報を質問し、エンジニアの知見を蓄積
+- **自動トレーサビリティ**: ドキュメント間の依存関係 (`depends_on`) と参照関係 (`refers_to`) を AI が自動抽出・双方向保存
+- **グラフ可視化**: チャネル全体の依存関係を左（上流）→右（下流）のステージ別グラフで表示
+- **多言語対応**: 英語 / 日本語 UI 切り替え
 
 ## Architecture
 
-- **Frontend**: JavaScript (MSAL.js for auth, ES Modules)
-- **Backend**: Python / Flask
-- **Database**: Azure Cosmos DB (NoSQL)
-- **Document Analysis**: Azure Content Understanding (Foundry Tools)
-- **AI Agents**: Microsoft Foundry Agent Service (4 agents)
-- **Auth**: Microsoft Entra ID (PKCE + OBO)
-- **File Storage**: Teams / SharePoint (Graph API)
-- **Hosting**: Azure App Service
+```mermaid
+graph TB
+    subgraph "Client (Browser)"
+        FE["JavaScript SPA<br/>MSAL.js + ES Modules"]
+    end
+
+    subgraph "Azure App Service"
+        BE["Python / Flask<br/>REST API"]
+        REL_WORKER["Relationship Worker<br/>(Sequential Queue)"]
+    end
+
+    subgraph "Azure AI Foundry"
+        CU["Content Understanding<br/>PDF Analysis"]
+        AGENTS["4 Prompt Agents<br/>question-generator<br/>answer-analysis<br/>doc-classifier<br/>relationship-analyzer"]
+        GPT["gpt-4.1-mini"]
+    end
+
+    subgraph "Data & Auth"
+        COSMOS["Azure Cosmos DB<br/>(Serverless)"]
+        ENTRA["Microsoft Entra ID"]
+        GRAPH["Microsoft Graph API"]
+        SP["SharePoint Online<br/>(Teams Files)"]
+    end
+
+    FE -->|"PKCE Auth"| ENTRA
+    FE -->|"REST API"| BE
+    BE -->|"OBO Flow"| ENTRA
+    BE -->|"Delegated"| GRAPH
+    GRAPH --> SP
+    BE -->|"Managed Identity"| COSMOS
+    BE -->|"Managed Identity"| CU
+    BE -->|"Managed Identity"| AGENTS
+    AGENTS --> GPT
+    CU --> GPT
+    REL_WORKER -->|"Sequential"| AGENTS
+    REL_WORKER -->|"Bidirectional Save"| COSMOS
+```
+
+### Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | JavaScript (MSAL.js v2.35.0, ES Modules) |
+| Backend | Python 3.10 / Flask |
+| Database | Azure Cosmos DB (NoSQL, Serverless, RBAC-only) |
+| Document Analysis | Azure Content Understanding (Foundry Tools) |
+| AI Agents | Microsoft Foundry Agent Service (4 Prompt Agents) |
+| Auth | Microsoft Entra ID (PKCE + OBO) |
+| File Storage | Teams / SharePoint Online (Graph API) |
+| Hosting | Azure App Service (Linux, B1) |
+| IaC | Bicep + Azure Developer CLI (azd) |
 
 ## Prerequisites
 

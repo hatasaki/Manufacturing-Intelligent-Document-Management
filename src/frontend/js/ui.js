@@ -65,6 +65,7 @@ export function renderFileDetails(doc, detailsEl) {
         <div class="tab-bar">
             <button class="tab-btn tab-active" data-tab="details">${escapeHtml(t("tabDetails"))}</button>
             <button class="tab-btn" data-tab="relationships">${escapeHtml(t("tabRelationships"))}</button>
+            <button class="tab-btn" data-tab="graph">${escapeHtml(t("tabGraph"))}</button>
         </div>
         <div class="tab-content tab-details" id="tab-details">
             <div class="detail-header">
@@ -103,6 +104,9 @@ export function renderFileDetails(doc, detailsEl) {
         <div class="tab-content tab-relationships hidden" id="tab-relationships">
             <div id="relationships-content"></div>
         </div>
+        <div class="tab-content tab-graph hidden" id="tab-graph">
+            <div id="graph-content"></div>
+        </div>
     `;
 
     // Tab switching
@@ -121,6 +125,16 @@ export function renderFileDetails(doc, detailsEl) {
                     container.dataset.needsEnrich = 'false';
                     if (typeof window._loadEnrichedRelationships === 'function') {
                         window._loadEnrichedRelationships(container.dataset.docId, container.dataset.channelId);
+                    }
+                }
+            }
+            // Lazy-load graph on first tab open
+            if (btn.dataset.tab === 'graph') {
+                const gc = document.getElementById('graph-content');
+                if (gc && gc.dataset.needsLoad === 'true' && gc.dataset.docId) {
+                    gc.dataset.needsLoad = 'false';
+                    if (typeof window._loadGraphData === 'function') {
+                        window._loadGraphData(gc.dataset.docId, gc.dataset.channelId);
                     }
                 }
             }
@@ -164,6 +178,14 @@ function _renderRelationshipsInitial(doc) {
 
     // Show a lightweight preview from raw doc data
     renderRelationshipsContent(doc);
+
+    // Set up graph tab lazy-load
+    const gc = document.getElementById('graph-content');
+    if (gc) {
+        gc.dataset.needsLoad = "true";
+        gc.dataset.docId = doc.id;
+        gc.dataset.channelId = doc.channelId || "";
+    }
 }
 
 const STAGE_LABELS = {
@@ -528,6 +550,273 @@ function showAnalysisModal(analysis) {
 
 export function hideAnalysisModal() {
     document.getElementById('analysis-modal').classList.add('hidden');
+}
+
+// ===================== Graph Tab =====================
+
+const STAGE_ORDER = [
+    "customer_requirements",
+    "requirements_definition",
+    "basic_design",
+    "detailed_design",
+    "module_design",
+    "implementation",
+];
+
+export function renderGraph(data, currentDocId) {
+    const container = document.getElementById('graph-content');
+    if (!container) return;
+
+    const nodes = data.nodes || [];
+    const edges = data.edges || [];
+
+    if (nodes.length === 0) {
+        container.innerHTML = `<p class="placeholder-text">${escapeHtml(t("graphNoData"))}</p>`;
+        return;
+    }
+
+    // Build node map
+    const nodesMap = {};
+    for (const n of nodes) {
+        nodesMap[n.docId] = {
+            id: n.docId,
+            label: n.fileName || n.docId,
+            stage: n.stage || "",
+            webUrl: n.webUrl || "",
+            isCurrent: n.docId === currentDocId,
+        };
+    }
+
+    // Build edge list with type classification
+    const graphEdges = edges.map(e => ({
+        from: e.from,
+        to: e.to,
+        type: e.relationshipType === "depends_on" ? "dependency" : "reference",
+        confidence: e.confidence || "low",
+        reason: e.reason || "",
+    }));
+
+    // Render filter bar + SVG
+    container.innerHTML = `
+        <div class="graph-filters">
+            <label class="graph-filter-label">${escapeHtml(t("relConfidence"))}:</label>
+            <label class="graph-filter-cb"><input type="checkbox" data-filter="high" checked> ${escapeHtml(t("graphFilterHigh"))}</label>
+            <label class="graph-filter-cb"><input type="checkbox" data-filter="medium" checked> ${escapeHtml(t("graphFilterMedium"))}</label>
+            <label class="graph-filter-cb"><input type="checkbox" data-filter="low" checked> ${escapeHtml(t("graphFilterLow"))}</label>
+            <span class="graph-filter-sep">|</span>
+            <label class="graph-filter-cb"><input type="checkbox" data-filter="dependency" checked> ${escapeHtml(t("graphFilterDependency"))}</label>
+            <label class="graph-filter-cb"><input type="checkbox" data-filter="reference" checked> ${escapeHtml(t("graphFilterReference"))}</label>
+        </div>
+        <div class="graph-viewport" id="graph-viewport">
+            <svg id="graph-svg"></svg>
+        </div>
+    `;
+
+    // Layout: group nodes by stage, left (upstream) → right (downstream)
+    const NODE_W = 200, NODE_H = 48, PAD_X = 300, PAD_Y = 100;
+    const stageColumns = {};
+    for (const n of Object.values(nodesMap)) {
+        const col = STAGE_ORDER.indexOf(n.stage);
+        const colIdx = col >= 0 ? col : STAGE_ORDER.length;
+        if (!stageColumns[colIdx]) stageColumns[colIdx] = [];
+        stageColumns[colIdx].push(n);
+    }
+
+    // Assign x, y positions
+    const usedColumns = Object.keys(stageColumns).map(Number).sort((a, b) => a - b);
+    usedColumns.forEach((colIdx, ci) => {
+        const colNodes = stageColumns[colIdx];
+        const x = 140 + ci * (NODE_W + PAD_X);
+        colNodes.forEach((n, ri) => {
+            n.x = x;
+            n.y = 80 + ri * (NODE_H + PAD_Y);
+        });
+    });
+
+    // Calculate SVG dimensions
+    const allNodes = Object.values(nodesMap);
+    const svgW = Math.max(1200, (allNodes.length > 0 ? Math.max(...allNodes.map(n => n.x)) + NODE_W + 140 : 1200));
+    const svgH = Math.max(600, (allNodes.length > 0 ? Math.max(...allNodes.map(n => n.y)) + NODE_H + 140 : 600));
+
+    const viewport = document.getElementById('graph-viewport');
+    const svgEl = document.getElementById('graph-svg');
+    svgEl.setAttribute('width', svgW);
+    svgEl.setAttribute('height', svgH);
+
+    // Edges connected to the current node (for highlighting)
+    const currentEdgeKeys = new Set();
+    graphEdges.forEach(e => {
+        if (e.from === currentDocId || e.to === currentDocId) {
+            currentEdgeKeys.add(`${e.from}-${e.to}`);
+        }
+    });
+
+    // Center scroll on current node
+    const curNode = allNodes.find(n => n.isCurrent);
+    if (curNode && viewport) {
+        setTimeout(() => {
+            viewport.scrollLeft = Math.max(0, curNode.x - viewport.clientWidth / 2 + NODE_W / 2);
+            viewport.scrollTop = Math.max(0, curNode.y - viewport.clientHeight / 2 + NODE_H / 2);
+        }, 0);
+    }
+
+    // Mouse drag panning
+    let isDragging = false, dragStartX = 0, dragStartY = 0, scrollStartX = 0, scrollStartY = 0;
+
+    function onDragStart(e) {
+        if (e.target.closest('.graph-node')) return;
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    }
+    function onDragMove(e) {
+        if (!isDragging) return;
+        viewport.scrollLeft = scrollStartX - (e.clientX - dragStartX);
+        viewport.scrollTop = scrollStartY - (e.clientY - dragStartY);
+    }
+    function onDragEnd() {
+        if (isDragging) {
+            isDragging = false;
+            viewport.style.cursor = 'grab';
+            document.body.style.userSelect = '';
+        }
+    }
+
+    // Remove previous listeners if re-rendered (store refs on viewport)
+    if (viewport._graphDragStart) {
+        viewport.removeEventListener('mousedown', viewport._graphDragStart);
+        document.removeEventListener('mousemove', viewport._graphDragMove);
+        document.removeEventListener('mouseup', viewport._graphDragEnd);
+    }
+    viewport._graphDragStart = onDragStart;
+    viewport._graphDragMove = onDragMove;
+    viewport._graphDragEnd = onDragEnd;
+
+    viewport.addEventListener('mousedown', onDragStart);
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragEnd);
+
+    function getActiveFilters() {
+        const cbs = container.querySelectorAll('.graph-filter-cb input');
+        const active = new Set();
+        cbs.forEach(cb => { if (cb.checked) active.add(cb.dataset.filter); });
+        return active;
+    }
+
+    function drawGraph() {
+        const filters = getActiveFilters();
+        const filteredEdges = graphEdges.filter(e =>
+            filters.has(e.type) && filters.has(e.confidence)
+        );
+
+        // Visible nodes: all nodes that have at least one edge, plus current node
+        const connectedIds = new Set([currentDocId]);
+        filteredEdges.forEach(e => { connectedIds.add(e.from); connectedIds.add(e.to); });
+        // Show all nodes that have a classification (even if no edges)
+        allNodes.forEach(n => { if (n.stage) connectedIds.add(n.id); });
+
+        let svg = '';
+        svg += `<defs>
+            <marker id="arrow-dep" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#0078d4"/></marker>
+            <marker id="arrow-ref" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#986f0b"/></marker>
+        </defs>`;
+
+        // Stage column headers
+        usedColumns.forEach((colIdx, ci) => {
+            const x = 140 + ci * (NODE_W + PAD_X);
+            const stageName = colIdx < STAGE_ORDER.length ? stageLabel(STAGE_ORDER[colIdx]) : "Other";
+            svg += `<text x="${x + NODE_W / 2}" y="20" text-anchor="middle" fill="#605e5c" font-size="11" font-weight="600">${escapeHtml(stageName)}</text>`;
+            svg += `<line x1="${x + NODE_W / 2}" y1="28" x2="${x + NODE_W / 2}" y2="${svgH - 10}" stroke="#e1dfdd" stroke-width="1" stroke-dasharray="4,4"/>`;
+        });
+
+        // Draw edges (non-highlighted first, then highlighted on top)
+        const highlightedEdges = [];
+        const normalEdges = [];
+        for (const e of filteredEdges) {
+            const key = `${e.from}-${e.to}`;
+            if (currentEdgeKeys.has(key)) {
+                highlightedEdges.push(e);
+            } else {
+                normalEdges.push(e);
+            }
+        }
+
+        function drawEdge(e, isHighlighted) {
+            const fromN = nodesMap[e.from];
+            const toN = nodesMap[e.to];
+            if (!fromN || !toN) return '';
+            if (!connectedIds.has(e.from) || !connectedIds.has(e.to)) return '';
+            const baseColor = e.type === "dependency" ? "#0078d4" : "#986f0b";
+            const color = isHighlighted ? baseColor : "#b0b0b0";
+            const dash = e.type === "reference" ? 'stroke-dasharray="8,4"' : '';
+            const marker = e.type === "dependency" ? "url(#arrow-dep)" : "url(#arrow-ref)";
+            const opacity = isHighlighted ? 1 : (e.confidence === "high" ? 0.5 : (e.confidence === "medium" ? 0.35 : 0.2));
+            const width = isHighlighted ? 3 : 1.5;
+
+            const sameColumn = (fromN.x === toN.x);
+            let path;
+            if (sameColumn) {
+                // Same-column: arc to the right side
+                const x1 = fromN.x + NODE_W;
+                const y1 = fromN.y + NODE_H / 2;
+                const x2 = toN.x + NODE_W;
+                const y2 = toN.y + NODE_H / 2;
+                const bulge = 80;
+                path = `M${x1},${y1} C${x1 + bulge},${y1} ${x2 + bulge},${y2} ${x2},${y2}`;
+            } else {
+                // Different columns: smooth curve from right edge to left edge
+                const x1 = fromN.x + NODE_W;
+                const y1 = fromN.y + NODE_H / 2;
+                const x2 = toN.x;
+                const y2 = toN.y + NODE_H / 2;
+                const midX = (x1 + x2) / 2;
+                path = `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
+            }
+            return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" ${dash} stroke-opacity="${opacity}" marker-end="${marker}"/>`;
+        }
+
+        // Normal edges first (background)
+        for (const e of normalEdges) { svg += drawEdge(e, false); }
+        // Highlighted edges on top
+        for (const e of highlightedEdges) { svg += drawEdge(e, true); }
+
+        // Draw nodes
+        for (const n of allNodes) {
+            if (!connectedIds.has(n.id)) continue;
+            const fill = n.isCurrent ? "#0078d4" : "#ffffff";
+            const textColor = n.isCurrent ? "#ffffff" : "#323130";
+            const stroke = n.isCurrent ? "#005a9e" : "#a19f9d";
+            const truncLabel = n.label.length > 24 ? n.label.substring(0, 22) + "…" : n.label;
+            svg += `<g class="graph-node" data-id="${escapeHtml(n.id)}" data-url="${escapeHtml(n.webUrl)}">`;
+            svg += `<rect x="${n.x}" y="${n.y}" width="${NODE_W}" height="${NODE_H}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+            svg += `<text x="${n.x + NODE_W / 2}" y="${n.y + 18}" text-anchor="middle" fill="${textColor}" font-size="11" font-weight="600">${escapeHtml(truncLabel)}</text>`;
+            svg += `<text x="${n.x + NODE_W / 2}" y="${n.y + 34}" text-anchor="middle" fill="${n.isCurrent ? '#cce4f7' : '#605e5c'}" font-size="10">${escapeHtml(stageLabel(n.stage))}</text>`;
+            svg += `</g>`;
+        }
+
+        svgEl.innerHTML = svg;
+
+        // Double-click on node → open URL
+        svgEl.querySelectorAll('.graph-node').forEach(g => {
+            g.style.cursor = 'pointer';
+            g.addEventListener('dblclick', () => {
+                const url = g.dataset.url;
+                if (url) window.open(url, '_blank', 'noopener');
+            });
+        });
+    }
+
+    drawGraph();
+
+    // Filter change handlers
+    container.querySelectorAll('.graph-filter-cb input').forEach(cb => {
+        cb.addEventListener('change', drawGraph);
+    });
 }
 
 export function initPaneDivider() {

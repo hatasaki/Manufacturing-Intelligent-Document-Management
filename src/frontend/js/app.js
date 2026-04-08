@@ -113,6 +113,16 @@ async function handleFileSelect(file) {
             }
         };
 
+        // Register callback for lazy-loading graph data
+        window._loadGraphData = async (docId, channelId) => {
+            try {
+                const graphData = await api.getChannelGraph(channelId || selectedChannelId);
+                ui.renderGraph(graphData, docId);
+            } catch (err) {
+                console.error("Failed to load graph data:", err);
+            }
+        };
+
         // If relationship extraction is in progress, start polling
         if (doc.relationshipStatus === "queued" || doc.relationshipStatus === "extracting") {
             pollRelationships(file.docId);
