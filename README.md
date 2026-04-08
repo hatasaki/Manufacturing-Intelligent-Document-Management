@@ -1,39 +1,39 @@
 # Manufacturing Intelligent Document Management
 
-製造業の設計開発プロセス（V モデル）の**左側（設計フェーズ）**に特化したドキュメント管理 Web アプリケーション。Teams/SharePoint 連携によるファイル管理、AI によるフォローアップ質問で暗黙知を抽出・蓄積し、ドキュメント間の上流/下流の依存関係を自動トレースする。
+A document management web application specialized for the **left side (design phase)** of the manufacturing design and development process (V-model). It provides file management through Teams/SharePoint integration, extracts and accumulates tacit knowledge via AI-driven follow-up questions, and automatically traces upstream/downstream dependencies between documents.
 
-### V モデルにおけるカバー範囲
+### V-Model Coverage
 
 ```
-顧客要求・市場要求 ──────────────────────── 受入テスト
-  │                                          │
-  ▼                                          │
-要件定義 ────────────────────────── システムテスト
-  │                                    │
-  ▼                                    │
-基本設計 ──────────────────── 結合テスト
+Customer / Market Requirements ──────────── Acceptance Test
+  │                                              │
+  ▼                                              │
+Requirements Definition ──────────── System Test
+  │                                        │
+  ▼                                        │
+High-Level Design ────────────── Integration Test
+  │                                  │
+  ▼                                  │
+Detailed Design ──────────── Unit Test
   │                              │
   ▼                              │
-詳細設計 ────────────── 単体テスト
-  │                        │
-  ▼                        │
-モジュール設計・実装準備    │
-  │                        │
-  ▼                        │
-実装 ──────────────────┘
+Module Design / Impl. Prep       │
+  │                              │
+  ▼                              │
+Implementation ──────────────┘
 
-◀━━━━━━━━━ 本アプリのカバー範囲 ━━━━━━━━━▶
-（左側：設計フェーズのドキュメントトレーサビリティ）
+◀━━━━━━━━ Coverage of This App ━━━━━━━━▶
+(Left side: Document traceability for the design phase)
 ```
 
 ## Key Features
 
-- **Teams/SharePoint 連携**: チャネルのファイルを直接管理・アップロード
-- **AI ドキュメント分析**: Content Understanding で PDF を自動解析
-- **暗黙知の抽出**: AI が設計文書の不足情報を質問し、エンジニアの知見を蓄積
-- **自動トレーサビリティ**: ドキュメント間の依存関係 (`depends_on`) と参照関係 (`refers_to`) を AI が自動抽出・双方向保存
-- **グラフ可視化**: チャネル全体の依存関係を左（上流）→右（下流）のステージ別グラフで表示
-- **多言語対応**: 英語 / 日本語 UI 切り替え
+- **Teams/SharePoint Integration**: Directly manage and upload channel files
+- **AI Document Analysis**: Automatically analyze PDFs with Content Understanding
+- **Tacit Knowledge Extraction**: AI asks questions about missing information in design documents to accumulate engineer expertise
+- **Automatic Traceability**: AI automatically extracts and bidirectionally saves dependency (`depends_on`) and reference (`refers_to`) relationships between documents
+- **Graph Visualization**: Display channel-wide dependency graphs by stage from left (upstream) to right (downstream)
+- **Multilingual Support**: English / Japanese UI switching
 
 ## Architecture
 
@@ -202,4 +202,212 @@ python app.py
     ├── APP_SPEC.md          # Application specification
     ├── ARCHITECTURE.md      # Architecture & flow diagrams
     └── RELATIONSHIP_SPEC.md # Document traceability specification
+```
+
+---
+
+# 製造業インテリジェントドキュメント管理（日本語）
+
+製造業の設計開発プロセス（V モデル）の**左側（設計フェーズ）**に特化したドキュメント管理 Web アプリケーション。Teams/SharePoint 連携によるファイル管理、AI によるフォローアップ質問で暗黙知を抽出・蓄積し、ドキュメント間の上流/下流の依存関係を自動トレースする。
+
+### V モデルにおけるカバー範囲
+
+```
+顧客要求・市場要求 ──────────────────────── 受入テスト
+  │                                          │
+  ▼                                          │
+要件定義 ────────────────────────── システムテスト
+  │                                    │
+  ▼                                    │
+基本設計 ──────────────────── 結合テスト
+  │                              │
+  ▼                              │
+詳細設計 ────────────── 単体テスト
+  │                        │
+  ▼                        │
+モジュール設計・実装準備    │
+  │                        │
+  ▼                        │
+実装 ──────────────────┘
+
+◀━━━━━━━━━ 本アプリのカバー範囲 ━━━━━━━━━▶
+（左側：設計フェーズのドキュメントトレーサビリティ）
+```
+
+## 主な機能
+
+- **Teams/SharePoint 連携**: チャネルのファイルを直接管理・アップロード
+- **AI ドキュメント分析**: Content Understanding で PDF を自動解析
+- **暗黙知の抽出**: AI が設計文書の不足情報を質問し、エンジニアの知見を蓄積
+- **自動トレーサビリティ**: ドキュメント間の依存関係 (`depends_on`) と参照関係 (`refers_to`) を AI が自動抽出・双方向保存
+- **グラフ可視化**: チャネル全体の依存関係を左（上流）→右（下流）のステージ別グラフで表示
+- **多言語対応**: 英語 / 日本語 UI 切り替え
+
+## アーキテクチャ
+
+```mermaid
+graph TB
+    subgraph "クライアント（ブラウザ）"
+        FE["JavaScript SPA<br/>MSAL.js + ES Modules"]
+    end
+
+    subgraph "Azure App Service"
+        BE["Python / Flask<br/>REST API"]
+        REL_WORKER["リレーションシップワーカー<br/>（逐次キュー）"]
+    end
+
+    subgraph "Azure AI Foundry"
+        CU["Content Understanding<br/>PDF 解析"]
+        AGENTS["4 つのプロンプトエージェント<br/>question-generator<br/>answer-analysis<br/>doc-classifier<br/>relationship-analyzer"]
+        GPT["gpt-4.1-mini"]
+    end
+
+    subgraph "データ & 認証"
+        COSMOS["Azure Cosmos DB<br/>（サーバーレス）"]
+        ENTRA["Microsoft Entra ID"]
+        GRAPH["Microsoft Graph API"]
+        SP["SharePoint Online<br/>（Teams ファイル）"]
+    end
+
+    FE -->|"PKCE 認証"| ENTRA
+    FE -->|"REST API"| BE
+    BE -->|"OBO フロー"| ENTRA
+    BE -->|"委任"| GRAPH
+    GRAPH --> SP
+    BE -->|"マネージド ID"| COSMOS
+    BE -->|"マネージド ID"| CU
+    BE -->|"マネージド ID"| AGENTS
+    AGENTS --> GPT
+    CU --> GPT
+    REL_WORKER -->|"逐次処理"| AGENTS
+    REL_WORKER -->|"双方向保存"| COSMOS
+```
+
+### 技術スタック
+
+| レイヤー | テクノロジー |
+|----------|-------------|
+| フロントエンド | JavaScript (MSAL.js v2.35.0, ES Modules) |
+| バックエンド | Python 3.10 / Flask |
+| データベース | Azure Cosmos DB (NoSQL, サーバーレス, RBAC のみ) |
+| ドキュメント解析 | Azure Content Understanding (Foundry Tools) |
+| AI エージェント | Microsoft Foundry Agent Service (4 つのプロンプトエージェント) |
+| 認証 | Microsoft Entra ID (PKCE + OBO) |
+| ファイルストレージ | Teams / SharePoint Online (Graph API) |
+| ホスティング | Azure App Service (Linux, B1) |
+| IaC | Bicep + Azure Developer CLI (azd) |
+
+## 前提条件
+
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- [Python 3.10 以上](https://www.python.org/downloads/)
+- Azure サブスクリプション
+- Microsoft Entra ID アプリ登録（SPA + Web API）
+
+## クイックスタート
+
+### 1. Entra ID アプリの登録
+
+1. Azure Portal → **Microsoft Entra ID** → **アプリの登録** → **新規登録**
+2. 名前: `Manufacturing Smart Doc Mgmt`
+3. サポートされるアカウントの種類: `この組織ディレクトリのみに含まれるアカウント`
+4. リダイレクト URI: `シングルページ アプリケーション (SPA)` →（デプロイ後に設定）
+5. 登録後:
+   - **API の公開** → URI を設定: `api://<client-id>` → スコープを追加: `access_as_user`
+   - **API のアクセス許可** → 委任を追加: `User.Read`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Files.ReadWrite.All`, `Sites.ReadWrite.All` → 管理者の同意を付与
+   - **証明書とシークレット** → 新しいクライアントシークレット → 値をコピー
+
+### 2. 構成とデプロイ
+
+```bash
+azd init
+
+# Entra ID の値のみ手動設定が必要 — それ以外はすべて自動プロビジョニング
+azd env set ENTRA_CLIENT_ID <クライアント ID>
+azd env set ENTRA_CLIENT_SECRET <クライアントシークレット>
+azd env set ENTRA_TENANT_ID <テナント ID>
+
+azd up
+```
+
+以下が自動的にプロビジョニングされます:
+- **Azure Cosmos DB**（サーバーレス、RBAC のみ）
+- **Microsoft Foundry**（AI Services + Project）
+- **モデルデプロイメント**（gpt-4.1-mini, text-embedding-3-large）
+- **Foundry エージェント**:
+  - `question-generator-agent` — フォローアップ質問の生成
+  - `answer-analysis-agent` — 回答の十分性評価
+  - `doc-classifier-agent` — ドキュメント分類（6 つのプロセスステージ）
+  - `relationship-analyzer-agent` — 上流/下流の依存関係分析
+- **Azure App Service**（Python 3.10, Linux）
+- **RBAC ロール割り当て**（Cosmos DB Data Contributor, Cognitive Services User）
+
+### 3. リダイレクト URI の設定
+
+デプロイ後、Entra ID アプリ登録を更新してください:
+- **SPA リダイレクト URI**: `https://<your-app>.azurewebsites.net`（azd の出力に表示されます）
+
+## ローカル開発
+
+```bash
+cd src/backend
+python -m venv .venv
+.venv/Scripts/activate  # Windows
+pip install -r requirements.txt
+
+# フロントエンドを static フォルダにコピー
+xcopy /E /I /Y ..\frontend static  # Windows
+# cp -r ../frontend/* static/      # Linux/Mac
+
+python app.py
+```
+
+## プロジェクト構成
+
+```
+├── azure.yaml              # azd プロジェクト定義
+├── infra/                  # Bicep IaC
+│   ├── main.bicep
+│   ├── main.parameters.json
+│   ├── abbreviations.json
+│   └── modules/
+│       ├── ai-foundry.bicep
+│       ├── ai-foundry-role-assignment.bicep
+│       ├── app-service.bicep
+│       ├── app-service-plan.bicep
+│       ├── cosmos-db.bicep
+│       └── cosmos-role-assignment.bicep
+├── scripts/
+│   └── create_agents.py    # Foundry エージェント作成（postprovision フック）
+├── src/
+│   ├── backend/            # Flask API
+│   │   ├── app.py
+│   │   ├── config.py
+│   │   ├── requirements.txt
+│   │   ├── routes/
+│   │   │   ├── auth_routes.py
+│   │   │   ├── teams_routes.py
+│   │   │   ├── document_routes.py
+│   │   │   └── relationship_routes.py
+│   │   └── services/
+│   │       ├── auth_service.py
+│   │       ├── graph_service.py
+│   │       ├── cosmos_service.py
+│   │       ├── content_understanding_service.py
+│   │       ├── agent_service.py
+│   │       └── relationship_service.py
+│   └── frontend/           # JavaScript SPA
+│       ├── index.html
+│       ├── css/styles.css
+│       └── js/
+│           ├── app.js
+│           ├── api.js
+│           ├── auth.js
+│           ├── config.js
+│           ├── i18n.js
+│           └── ui.js
+└── docs/
+    ├── APP_SPEC.md          # アプリケーション仕様
+    ├── ARCHITECTURE.md      # アーキテクチャ & フロー図
+    └── RELATIONSHIP_SPEC.md # ドキュメントトレーサビリティ仕様
 ```
