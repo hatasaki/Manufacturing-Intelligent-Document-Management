@@ -1,14 +1,14 @@
 # Manufacturing Intelligent Document Management
 
-Manufacturing document management web app with Teams/SharePoint integration and AI-powered follow-up questions to extract implicit knowledge.
+Manufacturing document management web app with Teams/SharePoint integration, AI-powered follow-up questions to extract implicit knowledge, and automated document traceability (upstream/downstream dependency tracking).
 
 ## Architecture
 
-- **Frontend**: JavaScript (MSAL.js for auth)
+- **Frontend**: JavaScript (MSAL.js for auth, ES Modules)
 - **Backend**: Python / Flask
 - **Database**: Azure Cosmos DB (NoSQL)
 - **Document Analysis**: Azure Content Understanding (Foundry Tools)
-- **AI Agents**: Microsoft Foundry Agent Service
+- **AI Agents**: Microsoft Foundry Agent Service (4 agents)
 - **Auth**: Microsoft Entra ID (PKCE + OBO)
 - **File Storage**: Teams / SharePoint (Graph API)
 - **Hosting**: Azure App Service
@@ -49,8 +49,12 @@ azd up
 This automatically provisions:
 - **Azure Cosmos DB** (Serverless, RBAC-only)
 - **Microsoft Foundry** (AI Services + Project)
-- **Model deployments** (gpt-4.1, text-embedding-3-large)
-- **Foundry Agents** (question-generator-agent, answer-analysis-agent)
+- **Model deployments** (gpt-4.1-mini, text-embedding-3-large)
+- **Foundry Agents**:
+  - `question-generator-agent` — Follow-up question generation
+  - `answer-analysis-agent` — Answer sufficiency evaluation
+  - `doc-classifier-agent` — Document classification (6 process stages)
+  - `relationship-analyzer-agent` — Upstream/downstream dependency analysis
 - **Azure App Service** (Python 3.10, Linux)
 - **RBAC role assignments** (Cosmos DB Data Contributor, Cognitive Services User)
 
@@ -81,22 +85,45 @@ python app.py
 ├── infra/                  # Bicep IaC
 │   ├── main.bicep
 │   ├── main.parameters.json
+│   ├── abbreviations.json
 │   └── modules/
+│       ├── ai-foundry.bicep
+│       ├── ai-foundry-role-assignment.bicep
 │       ├── app-service.bicep
 │       ├── app-service-plan.bicep
 │       ├── cosmos-db.bicep
 │       └── cosmos-role-assignment.bicep
+├── scripts/
+│   └── create_agents.py    # Foundry Agent creation (postprovision hook)
 ├── src/
 │   ├── backend/            # Flask API
 │   │   ├── app.py
 │   │   ├── config.py
 │   │   ├── requirements.txt
 │   │   ├── routes/
+│   │   │   ├── auth_routes.py
+│   │   │   ├── teams_routes.py
+│   │   │   ├── document_routes.py
+│   │   │   └── relationship_routes.py
 │   │   └── services/
+│   │       ├── auth_service.py
+│   │       ├── graph_service.py
+│   │       ├── cosmos_service.py
+│   │       ├── content_understanding_service.py
+│   │       ├── agent_service.py
+│   │       └── relationship_service.py
 │   └── frontend/           # JavaScript SPA
 │       ├── index.html
-│       ├── css/
+│       ├── css/styles.css
 │       └── js/
+│           ├── app.js
+│           ├── api.js
+│           ├── auth.js
+│           ├── config.js
+│           ├── i18n.js
+│           └── ui.js
 └── docs/
-    └── APP_SPEC.md
+    ├── APP_SPEC.md          # Application specification
+    ├── ARCHITECTURE.md      # Architecture & flow diagrams
+    └── RELATIONSHIP_SPEC.md # Document traceability specification
 ```

@@ -33,7 +33,7 @@
 
 ### Trace タブの表示内容
 
-関連ドキュメントは **ファイル単位でグループ化** して表示する。同じターゲットファイルに対して複数の関係種別 (`references` + `derived_from` 等) がある場合、1 つのカード内にまとめて表示する。
+関連ドキュメントは **ファイル単位でグループ化** して表示し、上流（Upstream）と下流（Downstream）に分けて表示する。同じターゲットファイルに対して複数の関係種別 (`depends_on` + `refers_to` 等) がある場合、1 つのカード内にまとめて表示する。
 
 - ファイル名には Cosmos DB の `fileName` を使用 (エージェントが抽出した `documentClassification.title` ではなく、実際の PDF ファイル名)
 - ファイル名をダブルクリックすると SharePoint URL を新しいタブでオープン (`webUrl`)
@@ -49,9 +49,9 @@
 │ ┌──────────────────────────────────────────────────────────────┐ │
 │ │ 📄 brake-control-basic-design.pdf (doc-20260301-b2c3d4e5)     │ │
 │ │   Stage: 基本設計                                           │ │
-│ │   ┃ 引用元 (derived_from)  high                             │ │
-│ │   ┃   → 上流基本設計文書の文書番号 ARCH-014 が参照されている  │ │
-│ │   ┃ 参照 (references)     high                             │ │
+│ │   ┃ 依存 (depends_on)      high                             │ │
+│ │   ┃   → 上流基本設計文書の文書番号 ARCH-014 に依存  │ │
+│ │   ┃ 参照 (refers_to)       high                             │ │
 │ │   ┃   → Document number ARCH-014 is referenced             │ │
 │ └──────────────────────────────────────────────────────────────┘ │
 │                                                                  │
@@ -77,49 +77,42 @@
 
 ---
 
-## 関係の種類 (4 種類)
+## 関係の種類 (2 種類 + 逆方向)
 
-### 1) `derived_from` — 元になっている
+### 目的
 
-上流文書を受けて下流文書が作られた関係。
+ファイル間のトレーサビリティを確保し、以下の用途に特化する:
+- **(a) 上流変更時の影響分析**: 上流ファイルが更新された際に、影響を受ける下流ファイルを特定
+- **(b) 下流からの上流追跡**: 下流ファイル内容の確認が必要な際に、関連する上流ファイルを特定
 
-- **方向**: 下流 → 上流 (当該文書が下流、対象文書が上流)
-- **判定条件** (優先度順):
-  1. 隣接する上流工程の文書である
-  2. 上流文書の ID (要求 ID, 機能 ID 等) が文中に出現している
-  3. モジュール名 / サブシステム名が一致
-  4. タイトル・要約が類似している
+### 1) `depends_on` — 上流に依存している
 
-### 2) `decomposed_to` — 細分化された
+当該文書の内容が対象文書（上流）に依存している関係。上流文書が変更された場合、当該文書の見直しが必要になる可能性がある。
 
-1 つの上位文書から複数の下位文書に分解された関係。
+- **方向**: 当該文書（下流） → 対象文書（上流）
+- **逆方向**: 対象文書側には `depended_by` として保存
+- **判定条件** (confidence 基準):
+  - **high**: 対象文書の ID・文書番号が当該文書の `referencedIds` に含まれている（明示的な依存関係）
+  - **medium**: サブシステム名・モジュール名が一致し、かつ隣接工程の文書（暗黙的な依存関係）
+  - **low**: タイトル・要約の類似性のみから推定（弱い依存関係の可能性）
+- **包含範囲**: 旧 `derived_from` (上流からの派生)、`decomposed_to` の逆方向 (上流の一部を詳細化)、`reused_from` (過去版の再利用) をすべて `depends_on` に統合
 
-- **方向**: 上流 → 下流 (当該文書が上流、対象文書が下流)
-- **判定条件**:
-  1. 隣接する下流工程の文書である
-  2. 下流文書が上流のサブシステム / モジュールの一部だけを扱う
-  3. 下流文書のタイトルに部分機能名が含まれる
+### 2) `refers_to` — 明示的に参照している
 
-### 3) `reused_from` — 流用
+当該文書内で対象文書の ID・文書番号が明示的に参照されている関係。プログラム的 ID 照合で自動検出。
 
-過去製品や過去案件の同階層文書を流用した関係。
+- **方向**: 当該文書（参照元） → 対象文書（参照先）
+- **逆方向**: 対象文書側には `referred_by` として保存
+- **判定条件**: `referencedIds` と `documentNumber` のプログラム的照合（エージェント不使用）
+- **confidence**: 常に `high`（明示的 ID 一致のため）
+- **工程隣接制約なし**: 任意の工程間で発生しうる
 
-- **方向**: 新 → 旧 (当該文書が新、対象文書が旧)
-- **判定条件**:
-  1. 同じ工程ステップの文書である
-  2. 同じサブシステム / モジュール名
-  3. 製品世代だけが異なる
-  4. 旧文書番号や旧製品名が記載されている
-  5. 要約の類似度が高い
+### 逆方向関係
 
-### 4) `references` — 参照している
-
-文書内で ID や資料名が明示的に参照されている関係。
-
-- **方向**: 参照元 → 参照先 (当該文書が参照元)
-- **判定条件**:
-  1. 文書中に他文書の ID・番号・資料名が出現している
-  2. 工程隣接制約なし (任意の工程間で発生しうる)
+| 正方向 (当該文書 → 対象文書) | 逆方向 (対象文書側に保存) |
+|---|---|
+| `depends_on` | `depended_by` |
+| `refers_to` | `referred_by` |
 
 ---
 
@@ -172,7 +165,7 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
 
 **隣接工程マッピング**:
 
-| 当該文書の stage | 比較対象 stage (derived_from / decomposed_to 候補) |
+| 当該文書の stage | 比較対象 stage (depends_on / depended_by 候補) |
 |-----------------|--------------------------------------------------|
 | `customer_requirements` | `requirements_definition` (下流のみ) |
 | `requirements_definition` | `customer_requirements`, `basic_design` |
@@ -181,9 +174,8 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
 | `module_design` | `detailed_design`, `implementation` |
 | `implementation` | `module_design` (上流のみ) |
 
-- **`derived_from` / `decomposed_to` 候補**: 隣接上流・下流工程の文書
-- **`reused_from` 候補**: 同工程 (`stage` が同一) の文書
-- **`references` 候補**: 全分類済み文書 (ただしエージェントには送信せず、`referencedIds` と `documentNumber` のプログラム的照合のみで判定。一致が見つかった文書のみ結果に含める)
+- **`depends_on` / `depended_by` 候補**: 隣接上流・下流工程 + 同工程の文書
+- **`refers_to` / `referred_by` 候補**: 全分類済み文書 (ただしエージェントには送信せず、`referencedIds` と `documentNumber` のプログラム的照合のみで判定。一致が見つかった文書のみ結果に含める)
 
 ### Step 4: 関係推定 (relationship-analyzer-agent)
 
@@ -225,9 +217,9 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
   {
     "sourceDocId": "doc-20260330-a1b2c3d4",
     "targetDocId": "doc-20260301-b2c3d4e5",
-    "relationshipType": "derived_from",
+    "relationshipType": "depends_on",
     "confidence": "high",
-    "reason": "上流基本設計文書の文書番号 ARCH-014 がソース文書内で参照されている。サブシステム名「ブレーキ制御」が一致。"
+    "reason": "上流基本設計文書の文書番号 ARCH-014 に依存。サブシステム名「ブレーキ制御」が一致。"
   }
 ]
 ```
@@ -265,8 +257,8 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
 | モデル | `gpt-41-mini` |
 
 **instructions 概要**:
-- ソース文書と候補文書のメタデータ (工程ステップ、タイトル、要約、ID、サブシステム等) を受け取り、3 種類の関係 (`derived_from`, `decomposed_to`, `reused_from`) を判定する
-- `references` 関係はプログラム的 ID 照合で処理済みのため、エージェントは判定しない
+- ソース文書と候補文書のメタデータ (工程ステップ、タイトル、要約、ID、サブシステム等) を受け取り、2 種類の依存関係 (`depends_on`, `depended_by`) を判定する
+- `refers_to` / `referred_by` 関係はプログラム的 ID 照合で処理済みのため、エージェントは判定しない
 - 判定優先順位:
   1. **ID 参照の照合** (`referencedIds` と `documentNumber` の一致) — 最優先
   2. **サブシステム名 / モジュール名の一致**
@@ -314,14 +306,14 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
   "relationships": [
     {
       "targetDocId": "doc-20260301-b2c3d4e5",
-      "relationshipType": "derived_from",
+      "relationshipType": "depends_on",
       "confidence": "high",
-      "reason": "上流基本設計文書の文書番号 ARCH-014 がソース文書内で参照されている。サブシステム名「ブレーキ制御」が一致。",
+      "reason": "上流基本設計文書の文書番号 ARCH-014 に依存。サブシステム名「ブレーキ制御」が一致。",
       "extractedAt": "2026-03-15T14:45:00Z"
     },
     {
       "targetDocId": "doc-20260310-c3d4e5f6",
-      "relationshipType": "decomposed_to",
+      "relationshipType": "depended_by",
       "confidence": "medium",
       "reason": "モジュール名 ABS が一致。下流文書が ABS モジュールの実装仕様を扱っている。",
       "extractedAt": "2026-03-15T14:45:00Z"
@@ -350,7 +342,7 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
 | `documentClassification.classifiedAt` | `string` | 分類実行日時 (ISO 8601) |
 | `relationships` | `array` | 抽出された関係リスト |
 | `relationships[].targetDocId` | `string` | 関係先ドキュメント ID |
-| `relationships[].relationshipType` | `string` | 関係種別 (enum: `derived_from`, `decomposed_to`, `reused_from`, `references`) |
+| `relationships[].relationshipType` | `string` | 関係種別 (enum: `depends_on`, `depended_by`, `refers_to`, `referred_by`) |
 | `relationships[].confidence` | `string` | 確信度 (enum: `high`, `medium`, `low`) |
 | `relationships[].reason` | `string` | 判定根拠 |
 | `relationships[].extractedAt` | `string` | 抽出日時 (ISO 8601) |
@@ -388,7 +380,7 @@ Cosmos DB から同一 `channelId` の全ドキュメントを取得し、`docum
       "targetDocId": "doc-20260301-b2c3d4e5",
       "targetTitle": "ブレーキ制御 基本設計書",
       "targetStage": "basic_design",
-      "relationshipType": "derived_from",
+      "relationshipType": "depends_on",
       "confidence": "high",
       "reason": "..."
     }
@@ -507,10 +499,8 @@ relationshipStatus: "completed" に更新
 
 | 正方向 | 逆方向 |
 |--------|--------|
-| `derived_from` (A → B) | `decomposed_to` (B → A) |
-| `decomposed_to` (A → B) | `derived_from` (B → A) |
-| `reused_from` (A → B) | `reused_from` (B → A) |
-| `references` (A → B) | `references` (B → A) |
+| `depends_on` (A → B) | `depended_by` (B → A) |
+| `refers_to` (A → B) | `referred_by` (B → A) |
 
 ### 部分的完了の扱い
 
@@ -555,9 +545,9 @@ def _extract_relationships(app, doc_id: str, channel_id: str) -> None:
 # --- ビジネスロジック ---
 def find_candidates(channel_id: str, classification: dict, all_docs: list) -> tuple[list, list]:
     """同一チャネルの分類済み文書から比較候補を抽出する。
-    戻り値: (エージェント送信用候補リスト, references用ID照合結果リスト)
-    - derived_from/decomposed_to/reused_from: 隣接工程 + 同工程の文書
-    - references: 全分類済み文書から referencedIds と documentNumber のプログラム的照合"""
+    戻り値: (エージェント送信用候補リスト, refers_to用ID照合結果リスト)
+    - depends_on/depended_by: 隣接工程 + 同工程の文書
+    - refers_to/referred_by: 全分類済み文書から referencedIds と documentNumber のプログラム的照合"""
 
 def save_bidirectional_relationships(doc_id: str, channel_id: str, relationships: list) -> None:
     """当該ドキュメントと対象ドキュメントの双方に関係を保存する。"""
@@ -571,9 +561,9 @@ def classify_document(extracted_text: str, lang: str = "en") -> dict:
     既存の generate_questions() と同じ呼出しパターン (retry_with_backoff 付き)。"""
 
 def analyze_document_relationships(source: dict, candidates: list, lang: str = "en") -> list:
-    """relationship-analyzer-agent を呼び出して関係を推定する。
-    ※ references 関係はプログラム的照合で処理済みのため、エージェントは
-    derived_from/decomposed_to/reused_from の判定のみ行う。"""
+    """relationship-analyzer-agent を呼び出して依存関係を推定する。
+    ※ refers_to/referred_by 関係はプログラム的照合で処理済みのため、エージェントは
+    depends_on/depended_by の判定のみ行う。"""
 ```
 
 ### 既存ファイルの変更
@@ -676,34 +666,24 @@ No additional text or explanation."""
 ### relationship-analyzer-agent
 
 ```python
-RELATIONSHIP_ANALYZER_INSTRUCTIONS = """You are a manufacturing document relationship analyst.
-Given a source document's metadata and a list of candidate documents, determine
-which candidates have meaningful relationships with the source document.
+RELATIONSHIP_ANALYZER_INSTRUCTIONS = """You are a manufacturing document dependency analyst.
+Your task is to determine upstream/downstream dependency relationships between documents
+in a manufacturing engineering process.
 
-Relationship types (use ONLY these 3):
-1. derived_from: Source document was created based on the target (upstream) document.
-   The target is in an adjacent upstream stage.
-2. decomposed_to: Source document is broken down into the target (downstream) document.
-   The target is in an adjacent downstream stage and covers a subset of the source's scope.
-3. reused_from: Source document reuses content from a past version of a similar document
-   at the same process stage. Look for different product generations with same subsystem/module.
+Relationship types (use ONLY these 2):
+1. depends_on: The SOURCE document depends on the TARGET (upstream) document.
+2. depended_by: The TARGET document depends on the SOURCE (upstream) document.
 
-NOTE: Do NOT evaluate 'references' relationships. Those are handled separately
+Confidence levels:
+- high: Document IDs match in referencedIds (explicit dependency)
+- medium: Subsystem/module names match AND adjacent process stages (implicit dependency)
+- low: Only title/summary similarity (weak dependency indication)
+
+NOTE: Do NOT evaluate 'refers_to' relationships. Those are handled separately
 via programmatic ID matching outside of this agent.
 
-Analysis priority:
-1. FIRST check referencedIds matches (strongest signal)
-2. THEN check subsystem/module name matches
-3. ONLY IF no ID matches, use title/summary similarity as fallback
-
-Rules:
-- Only report relationships you are confident about
-- Do not fabricate relationships — if no meaningful relationship exists, return empty array
-- Each relationship needs a clear reason
-- Confidence levels: high (ID match), medium (name match + context), low (similarity only)
-
 Output format: Return a JSON array of relationship objects, each with:
-- sourceDocId, targetDocId, relationshipType, confidence, reason
+- sourceDocId, targetDocId, relationshipType (depends_on or depended_by), confidence, reason
 Return empty array [] if no relationships found."""
 ```
 
@@ -725,10 +705,12 @@ Return empty array [] if no relationships found."""
 - `lang=ja` の場合、エージェントの `reason` フィールドは日本語で出力される
 - UI の関係種別ラベルは `i18n.js` で翻訳する:
   - タブ名: "Trace" / "トレース"
-  - `derived_from` → "Derived From" / "派生"
-  - `decomposed_to` → "Decomposed To" / "分割"
-  - `reused_from` → "Reused From" / "再利用"
-  - `references` → "References" / "参照"
+  - 上流セクション: "Upstream (this file depends on)" / "上流 (このファイルの依存先)"
+  - 下流セクション: "Downstream (depends on this file)" / "下流 (このファイルに依存)"
+  - `depends_on` → "Depends On" / "依存"
+  - `depended_by` → "Depended By" / "被依存"
+  - `refers_to` → "Refers To" / "参照"
+  - `referred_by` → "Referred By" / "被参照"
 
 ---
 

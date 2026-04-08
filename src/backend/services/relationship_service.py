@@ -24,10 +24,10 @@ ADJACENT_STAGES = {
 
 # Reverse relationship mapping for bidirectional save
 REVERSE_RELATIONSHIP = {
-    "derived_from": "decomposed_to",
-    "decomposed_to": "derived_from",
-    "reused_from": "reused_from",
-    "references": "references",
+    "depends_on": "depended_by",
+    "depended_by": "depends_on",
+    "refers_to": "referred_by",
+    "referred_by": "refers_to",
 }
 
 
@@ -275,7 +275,7 @@ def find_candidates(doc_id: str, classification: dict, all_docs: list) -> tuple:
         if d_doc_number and d_doc_number in my_referenced_ids:
             reference_matches.append({
                 "targetDocId": d["id"],
-                "relationshipType": "references",
+                "relationshipType": "refers_to",
                 "confidence": "high",
                 "reason": f"Document number {d_doc_number} is explicitly referenced in the source document.",
             })
@@ -283,9 +283,9 @@ def find_candidates(doc_id: str, classification: dict, all_docs: list) -> tuple:
         elif my_doc_number and my_doc_number in d_referenced_ids:
             reference_matches.append({
                 "targetDocId": d["id"],
-                "relationshipType": "references",
+                "relationshipType": "referred_by",
                 "confidence": "high",
-                "reason": f"Target document references source document number {my_doc_number}.",
+                "reason": f"Target document explicitly references source document number {my_doc_number}.",
             })
 
     return agent_candidates, reference_matches

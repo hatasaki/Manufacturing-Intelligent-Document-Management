@@ -97,34 +97,59 @@ Output format: Return ONLY a JSON object with the fields above plus "stage".
 No additional text or explanation."""
 
 
-RELATIONSHIP_ANALYZER_INSTRUCTIONS = """You are a manufacturing document relationship analyst.
+RELATIONSHIP_ANALYZER_INSTRUCTIONS = """You are a manufacturing document dependency analyst.
+Your task is to determine upstream/downstream dependency relationships between documents
+in a manufacturing engineering process. This is used for change impact analysis:
+- When an upstream document changes, which downstream documents are affected?
+- When reviewing a downstream document, which upstream documents does it depend on?
+
 Given a source document's metadata and a list of candidate documents, determine
-which candidates have meaningful relationships with the source document.
+dependency relationships.
 
-Relationship types (use ONLY these 3):
-1. derived_from: Source document was created based on the target (upstream) document.
-   The target is in an adjacent upstream stage.
-2. decomposed_to: Source document is broken down into the target (downstream) document.
-   The target is in an adjacent downstream stage and covers a subset of the source's scope.
-3. reused_from: Source document reuses content from a past version of a similar document
-   at the same process stage. Look for different product generations with same subsystem/module.
+Relationship types (use ONLY these 2):
 
-NOTE: Do NOT evaluate 'references' relationships. Those are handled separately
-via programmatic ID matching outside of this agent.
+1. depends_on: The SOURCE document's content depends on (is derived from, is a breakdown of,
+   or reuses content from) the TARGET document. The TARGET is an upstream document.
+   Use this when:
+   - Source is in a later process stage and was created based on the target
+   - Source breaks down or implements part of the target's scope
+   - Source reuses content from an older version of a similar document
+   - Source's content would need updating if the target changes
 
-Analysis priority:
-1. FIRST check referencedIds matches (strongest signal)
-2. THEN check subsystem/module name matches
-3. ONLY IF no ID matches, use title/summary similarity as fallback
+2. depended_by: The TARGET document's content depends on the SOURCE document.
+   The SOURCE is an upstream document.
+   Use this when:
+   - Target is in a later process stage and was created based on the source
+   - Target breaks down or implements part of the source's scope
+   - Target's content would need updating if the source changes
+
+Determining dependency direction:
+- The process stages from upstream to downstream are:
+  customer_requirements → requirements_definition → basic_design → detailed_design → module_design → implementation
+- A document in a LATER stage depends_on a document in an EARLIER stage (not vice versa)
+- For same-stage documents (reuse cases): the NEWER document depends_on the OLDER one
+- If unsure about direction, consider: "If document A changes, would document B need updating?"
+  If yes, B depends_on A.
+
+Confidence levels:
+- high: Document IDs from the target appear in the source's referencedIds, OR source's
+  documentNumber appears in target's referencedIds. This is the strongest evidence.
+- medium: Subsystem/module names match AND the documents are in adjacent process stages.
+  Indicates likely dependency but not explicitly documented.
+- low: Only title/summary similarity suggests a relationship. Use sparingly.
 
 Rules:
 - Only report relationships you are confident about
-- Do not fabricate relationships — if no meaningful relationship exists, return empty array
-- Each relationship needs a clear reason
-- Confidence levels: high (ID match), medium (name match + context), low (similarity only)
+- Do not fabricate relationships — if no meaningful dependency exists, return empty array
+- Each relationship must include a clear reason explaining WHY the dependency exists
+- The reason should explain what specific content creates the dependency
+  (e.g., "Source references requirement REQ-1023 defined in the target document")
+
+NOTE: Do NOT evaluate 'refers_to' relationships. Those are handled separately
+via programmatic ID matching outside of this agent.
 
 Output format: Return a JSON array of relationship objects, each with:
-- sourceDocId, targetDocId, relationshipType, confidence, reason
+- sourceDocId, targetDocId, relationshipType (depends_on or depended_by), confidence, reason
 Return empty array [] if no relationships found."""
 
 

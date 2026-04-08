@@ -176,10 +176,10 @@ const STAGE_LABELS = {
 };
 
 const RELATIONSHIP_LABELS = {
-    derived_from: "relDerivedFrom",
-    decomposed_to: "relDecomposedTo",
-    reused_from: "relReusedFrom",
-    references: "relReferences",
+    depends_on: "relDependsOn",
+    depended_by: "relDependedBy",
+    refers_to: "relRefersTo",
+    referred_by: "relReferredBy",
 };
 
 function stageLabel(stage) {
@@ -233,43 +233,75 @@ export function renderRelationshipsContent(doc) {
     if (relationships.length === 0) {
         relationshipsHtml = `<p class="placeholder-text">${escapeHtml(t("relNoRelationships"))}</p>`;
     } else {
-        // Group relationships by target document
-        const grouped = {};
-        for (const rel of relationships) {
-            const key = rel.targetDocId || "unknown";
-            if (!grouped[key]) {
-                grouped[key] = {
-                    targetDocId: rel.targetDocId || "",
-                    targetFileName: rel.targetFileName || rel.targetTitle || rel.targetDocId || "—",
-                    targetStage: rel.targetStage || null,
-                    targetWebUrl: rel.targetWebUrl || "",
-                    relations: [],
-                };
+        // Split into upstream (depends_on, refers_to) and downstream (depended_by, referred_by)
+        const UPSTREAM_TYPES = new Set(["depends_on", "refers_to"]);
+        const DOWNSTREAM_TYPES = new Set(["depended_by", "referred_by"]);
+
+        const upstreamRels = relationships.filter(r => UPSTREAM_TYPES.has(r.relationshipType));
+        const downstreamRels = relationships.filter(r => DOWNSTREAM_TYPES.has(r.relationshipType));
+
+        function groupByTarget(rels) {
+            const grouped = {};
+            for (const rel of rels) {
+                const key = rel.targetDocId || "unknown";
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        targetDocId: rel.targetDocId || "",
+                        targetFileName: rel.targetFileName || rel.targetTitle || rel.targetDocId || "—",
+                        targetStage: rel.targetStage || null,
+                        targetWebUrl: rel.targetWebUrl || "",
+                        relations: [],
+                    };
+                }
+                grouped[key].relations.push(rel);
             }
-            grouped[key].relations.push(rel);
+            return Object.values(grouped);
         }
 
-        relationshipsHtml = Object.values(grouped).map(group => {
-            const fileNameHtml = group.targetWebUrl
-                ? `<a href="${escapeHtml(group.targetWebUrl)}" target="_blank" rel="noopener">${escapeHtml(group.targetFileName)}</a>`
-                : escapeHtml(group.targetFileName);
+        function renderGroup(groups) {
+            return groups.map(group => {
+                const fileNameHtml = group.targetWebUrl
+                    ? `<a href="${escapeHtml(group.targetWebUrl)}" target="_blank" rel="noopener">${escapeHtml(group.targetFileName)}</a>`
+                    : escapeHtml(group.targetFileName);
 
-            const relationsHtml = group.relations.map(rel => `
-                <div class="rel-relation-item">
-                    <span class="rel-relation-type">${escapeHtml(relationshipLabel(rel.relationshipType))}</span>
-                    ${rel.confidence ? `<span class="rel-confidence rel-confidence-${escapeHtml(rel.confidence)}">${escapeHtml(rel.confidence)}</span>` : ''}
-                    ${rel.reason ? `<div class="rel-relation-reason">${escapeHtml(rel.reason)}</div>` : ''}
-                </div>
-            `).join('');
+                const relationsHtml = group.relations.map(rel => `
+                    <div class="rel-relation-item">
+                        <span class="rel-relation-type">${escapeHtml(relationshipLabel(rel.relationshipType))}</span>
+                        ${rel.confidence ? `<span class="rel-confidence rel-confidence-${escapeHtml(rel.confidence)}">${escapeHtml(rel.confidence)}</span>` : ''}
+                        ${rel.reason ? `<div class="rel-relation-reason">${escapeHtml(rel.reason)}</div>` : ''}
+                    </div>
+                `).join('');
 
-            return `
-                <div class="rel-card">
-                    <div class="rel-card-target">📄 ${fileNameHtml} <span class="rel-card-doc-id">(${escapeHtml(group.targetDocId)})</span></div>
-                    ${group.targetStage ? `<div class="rel-card-meta"><span>${escapeHtml(t("relStage"))}: ${escapeHtml(stageLabel(group.targetStage))}</span></div>` : ''}
-                    <div class="rel-relations-list">${relationsHtml}</div>
-                </div>
-            `;
-        }).join('');
+                return `
+                    <div class="rel-card">
+                        <div class="rel-card-target">📄 ${fileNameHtml} <span class="rel-card-doc-id">(${escapeHtml(group.targetDocId)})</span></div>
+                        ${group.targetStage ? `<div class="rel-card-meta"><span>${escapeHtml(t("relStage"))}: ${escapeHtml(stageLabel(group.targetStage))}</span></div>` : ''}
+                        <div class="rel-relations-list">${relationsHtml}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        const upstreamGroups = groupByTarget(upstreamRels);
+        const downstreamGroups = groupByTarget(downstreamRels);
+
+        const upstreamHtml = upstreamGroups.length > 0
+            ? renderGroup(upstreamGroups)
+            : `<p class="placeholder-text">${escapeHtml(t("relNoUpstream"))}</p>`;
+
+        const downstreamHtml = downstreamGroups.length > 0
+            ? renderGroup(downstreamGroups)
+            : `<p class="placeholder-text">${escapeHtml(t("relNoDownstream"))}</p>`;
+
+        relationshipsHtml = `
+            <div class="rel-section">
+                <h4 class="rel-section-header rel-section-upstream">⬆ ${escapeHtml(t("relUpstream"))}</h4>
+                ${upstreamHtml}
+            </div>
+            <div class="rel-section">
+                <h4 class="rel-section-header rel-section-downstream">⬇ ${escapeHtml(t("relDownstream"))}</h4>
+                ${downstreamHtml}
+            </div>`;
     }
 
     container.innerHTML = `

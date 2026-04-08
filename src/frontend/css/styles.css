@@ -905,6 +905,28 @@ body {
     margin-bottom: 12px;
 }
 
+.rel-section {
+    margin-bottom: 20px;
+}
+
+.rel-section-header {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+}
+
+.rel-section-upstream {
+    background: #e8f0fe;
+    color: #1a56db;
+}
+
+.rel-section-downstream {
+    background: #fef3cd;
+    color: #856404;
+}
+
 .rel-card {
     border: 1px solid var(--border);
     border-radius: var(--radius);
