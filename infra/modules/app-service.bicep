@@ -35,6 +35,9 @@ param foundryProjectEndpoint string
 @description('Content Understanding endpoint')
 param contentUnderstandingEndpoint string
 
+@description('Azure OpenAI endpoint for embeddings')
+param azureOpenAiEndpoint string
+
 resource appService 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -63,6 +66,7 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'ENTRA_TENANT_ID', value: entraTenantId }
         { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
         { name: 'CONTENT_UNDERSTANDING_ENDPOINT', value: contentUnderstandingEndpoint }
+        { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
         { name: 'WEBSITES_CONTAINER_START_TIME_LIMIT', value: '600' }
       ]

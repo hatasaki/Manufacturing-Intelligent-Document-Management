@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request, current_app
 from services.auth_service import require_auth
 from services import graph_service
 from services import agent_service
+from services.embedding_service import vectorize_document
 
 logger = logging.getLogger(__name__)
 document_bp = Blueprint("documents", __name__)
@@ -207,6 +208,7 @@ def answer_question(doc_id, q_id):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             cosmos.upsert_document(doc)
+            _try_vectorize(doc, doc_id, cosmos)
             return jsonify({
                 "validation": "sufficient",
                 "feedback": "Thank you for your detailed responses. Your input has been recorded.",
@@ -229,6 +231,7 @@ def answer_question(doc_id, q_id):
                 "validation": validation.get("validation", "sufficient"),
             })
             cosmos.upsert_document(doc)
+            _try_vectorize(doc, doc_id, cosmos)
 
             return jsonify({
                 "validation": validation.get("validation", "sufficient"),
@@ -244,3 +247,125 @@ def answer_question(doc_id, q_id):
     except Exception as e:
         logger.error("Failed to submit answer: %s", e)
         return jsonify({"error": f"Failed to submit answer: {e}"}), 500
+
+
+def _try_vectorize(doc: dict, doc_id: str, cosmos) -> None:
+    """Check if all questions are completed and trigger vectorization if so."""
+    all_completed = all(
+        q.get("agentValidation") == "sufficient"
+        or len([m for m in q.get("conversationThread", [])
+                 if m.get("role") == "user"]) >= 3
+        for q in doc.get("followUpQuestions", [])
+    )
+
+    if not all_completed:
+        return
+
+    try:
+        doc = vectorize_document(doc)
+        doc["vectorizedAt"] = datetime.now(timezone.utc).isoformat()
+        cosmos.upsert_document(doc)
+        logger.info("Document %s vectorized successfully", doc_id)
+    except Exception as ve:
+        logger.error("Vectorization failed for %s: %s", doc_id, ve)
+
+
+@document_bp.route("/documents/<doc_id>/complete-questions", methods=["POST"])
+@require_auth
+def complete_questions(doc_id):
+    """Mark the question flow as done and trigger vectorization.
+    Called when the user finishes (or skips) all follow-up questions."""
+    data = request.json or {}
+    channel_id = data.get("channelId")
+    if not channel_id:
+        return jsonify({"error": "channelId is required"}), 400
+
+    cosmos = current_app.config["COSMOS_SERVICE"]
+
+    try:
+        doc = cosmos.get_document(doc_id, channel_id)
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+
+        if doc.get("contentVector"):
+            return jsonify({"status": "already_vectorized"})
+
+        doc = vectorize_document(doc)
+        doc["vectorizedAt"] = datetime.now(timezone.utc).isoformat()
+        cosmos.upsert_document(doc)
+        logger.info("Document %s vectorized on question completion", doc_id)
+
+        return jsonify({"status": "vectorized"})
+
+    except Exception as e:
+        logger.error("Vectorization on complete failed for %s: %s", doc_id, e)
+        return jsonify({"error": f"Vectorization failed: {e}"}), 500
+
+
+@document_bp.route("/documents/<doc_id>", methods=["DELETE"])
+@require_auth
+def delete_document(doc_id):
+    """Delete a document from SharePoint and Cosmos DB, and clean up
+    relationship references in related documents."""
+    channel_id = request.args.get("channelId")
+    if not channel_id:
+        return jsonify({"error": "channelId query parameter required"}), 400
+
+    cosmos = current_app.config["COSMOS_SERVICE"]
+
+    try:
+        doc = cosmos.get_document(doc_id, channel_id)
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+
+        # 1. Delete the file from SharePoint via Graph API
+        drive_item_path = doc.get("driveItemPath", "")
+        if drive_item_path:
+            parts = drive_item_path.strip("/").split("/")
+            if len(parts) >= 4:
+                drive_id = parts[1]
+                item_id = parts[3]
+                try:
+                    graph_service.delete_drive_item(drive_id, item_id)
+                    logger.info("Deleted SharePoint file for document %s", doc_id)
+                except Exception as e:
+                    logger.error("Failed to delete SharePoint file for %s: %s", doc_id, e)
+                    return jsonify({"error": f"Failed to delete file from SharePoint: {e}"}), 500
+
+        # 2. Remove relationship references from related documents
+        relationships = doc.get("relationships", [])
+        cleanup_errors = []
+        for rel in relationships:
+            target_id = rel.get("targetDocId", "")
+            if not target_id:
+                continue
+            try:
+                target_doc = cosmos.get_document(target_id, channel_id)
+                if not target_doc:
+                    continue
+                original_count = len(target_doc.get("relationships", []))
+                target_doc["relationships"] = [
+                    r for r in target_doc.get("relationships", [])
+                    if r.get("targetDocId") != doc_id
+                ]
+                if len(target_doc["relationships"]) < original_count:
+                    target_doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                    cosmos.upsert_document(target_doc)
+                    logger.info("Removed relationship to %s from document %s", doc_id, target_id)
+            except Exception as e:
+                logger.error("Failed to clean relationship in %s: %s", target_id, e)
+                cleanup_errors.append(target_id)
+
+        # 3. Delete the document itself from Cosmos DB
+        cosmos.delete_document(doc_id, channel_id)
+        logger.info("Deleted document %s from Cosmos DB", doc_id)
+
+        result = {"status": "deleted", "documentId": doc_id}
+        if cleanup_errors:
+            result["warnings"] = f"Failed to clean relationships in: {', '.join(cleanup_errors)}"
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Failed to delete document %s: %s", doc_id, e)
+        return jsonify({"error": f"Failed to delete document: {e}"}), 500

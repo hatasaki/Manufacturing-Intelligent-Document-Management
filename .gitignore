@@ -20,6 +20,7 @@ Thumbs.db
 
 # Azure
 .azure/
+local.settings.json
 
 # Environment
 .env

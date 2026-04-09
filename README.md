@@ -33,6 +33,7 @@ Implementation ──────────────┘
 - **Tacit Knowledge Extraction**: AI asks questions about missing information in design documents to accumulate engineer expertise
 - **Automatic Traceability**: AI automatically extracts and bidirectionally saves dependency (`depends_on`) and reference (`refers_to`) relationships between documents
 - **Graph Visualization**: Display channel-wide dependency graphs by stage from left (upstream) to right (downstream)
+- **MCP Server**: Semantic search and document retrieval via Model Context Protocol (Streamable HTTP)
 - **Multilingual Support**: English / Japanese UI switching
 
 ## Architecture
@@ -132,6 +133,7 @@ This automatically provisions:
   - `doc-classifier-agent` — Document classification (6 process stages)
   - `relationship-analyzer-agent` — Upstream/downstream dependency analysis
 - **Azure App Service** (Python 3.10, Linux)
+- **Azure Functions** (Flex Consumption, MCP Server)
 - **RBAC role assignments** (Cosmos DB Data Contributor, Cognitive Services User)
 
 ### 3. Set Redirect URI
@@ -170,7 +172,8 @@ python app.py
 │       ├── cosmos-db.bicep
 │       └── cosmos-role-assignment.bicep
 ├── scripts/
-│   └── create_agents.py    # Foundry Agent creation (postprovision hook)
+│   ├── create_agents.py    # Foundry Agent creation (postprovision hook)
+│   └── create_vector_container.py  # Cosmos DB container with vector indexes
 ├── src/
 │   ├── backend/            # Flask API
 │   │   ├── app.py
@@ -187,7 +190,12 @@ python app.py
 │   │       ├── cosmos_service.py
 │   │       ├── content_understanding_service.py
 │   │       ├── agent_service.py
+│   │       ├── embedding_service.py
 │   │       └── relationship_service.py
+│   ├── mcp-server/         # MCP Server (Azure Functions)
+│   │   ├── function_app.py
+│   │   ├── host.json
+│   │   └── requirements.txt
 │   └── frontend/           # JavaScript SPA
 │       ├── index.html
 │       ├── css/styles.css
@@ -201,8 +209,55 @@ python app.py
 └── docs/
     ├── APP_SPEC.md          # Application specification
     ├── ARCHITECTURE.md      # Architecture & flow diagrams
+    ├── DOCS_MCP_SPEC.md     # MCP server & vectorization specification
     └── RELATIONSHIP_SPEC.md # Document traceability specification
 ```
+
+## MCP Server Usage
+
+This application includes an MCP (Model Context Protocol) server deployed as an Azure Functions Flex Consumption app. It provides semantic document search and retrieval tools that can be used by MCP-compatible clients such as GitHub Copilot in VS Code.
+
+### Get Connection Info
+
+```bash
+# Get the Function App name and MCP key
+$rg = azd env get-value AZURE_RESOURCE_GROUP
+$funcName = az functionapp list --resource-group $rg --query "[0].name" -o tsv
+Write-Host "URL: https://$funcName.azurewebsites.net/runtime/webhooks/mcp"
+az functionapp keys list --resource-group $rg --name $funcName --query "systemKeys.mcp_extension" -o tsv
+```
+
+### Configure in VS Code (`.vscode/mcp.json`)
+
+```json
+{
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "mcp-key",
+            "description": "MCP Extension System Key",
+            "password": true
+        }
+    ],
+    "servers": {
+        "manufacturing-docs": {
+            "type": "http",
+            "url": "https://<FUNCTION_APP_NAME>.azurewebsites.net/runtime/webhooks/mcp",
+            "headers": {
+                "x-functions-key": "${input:mcp-key}"
+            }
+        }
+    }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_documents` | Semantic vector search across all documents |
+| `get_document_detail` | Retrieve full document content, classification, and Q&A |
+| `get_related_documents` | Get upstream/downstream document relationships |
 
 ---
 
@@ -241,6 +296,7 @@ python app.py
 - **暗黙知の抽出**: AI が設計文書の不足情報を質問し、エンジニアの知見を蓄積
 - **自動トレーサビリティ**: ドキュメント間の依存関係 (`depends_on`) と参照関係 (`refers_to`) を AI が自動抽出・双方向保存
 - **グラフ可視化**: チャネル全体の依存関係を左（上流）→右（下流）のステージ別グラフで表示
+- **MCP サーバー**: Model Context Protocol（Streamable HTTP）によるセマンティック検索・ドキュメント取得
 - **多言語対応**: 英語 / 日本語 UI 切り替え
 
 ## アーキテクチャ
@@ -340,6 +396,7 @@ azd up
   - `doc-classifier-agent` — ドキュメント分類（6 つのプロセスステージ）
   - `relationship-analyzer-agent` — 上流/下流の依存関係分析
 - **Azure App Service**（Python 3.10, Linux）
+- **Azure Functions**（Flex Consumption, MCP サーバー）
 - **RBAC ロール割り当て**（Cosmos DB Data Contributor, Cognitive Services User）
 
 ### 3. リダイレクト URI の設定
@@ -378,7 +435,8 @@ python app.py
 │       ├── cosmos-db.bicep
 │       └── cosmos-role-assignment.bicep
 ├── scripts/
-│   └── create_agents.py    # Foundry エージェント作成（postprovision フック）
+│   ├── create_agents.py    # Foundry エージェント作成（postprovision フック）
+│   └── create_vector_container.py  # ベクトルインデックス付き Cosmos DB コンテナ作成
 ├── src/
 │   ├── backend/            # Flask API
 │   │   ├── app.py
@@ -395,7 +453,12 @@ python app.py
 │   │       ├── cosmos_service.py
 │   │       ├── content_understanding_service.py
 │   │       ├── agent_service.py
+│   │       ├── embedding_service.py
 │   │       └── relationship_service.py
+│   ├── mcp-server/         # MCP サーバー (Azure Functions)
+│   │   ├── function_app.py
+│   │   ├── host.json
+│   │   └── requirements.txt
 │   └── frontend/           # JavaScript SPA
 │       ├── index.html
 │       ├── css/styles.css
@@ -409,5 +472,52 @@ python app.py
 └── docs/
     ├── APP_SPEC.md          # アプリケーション仕様
     ├── ARCHITECTURE.md      # アーキテクチャ & フロー図
+    ├── DOCS_MCP_SPEC.md     # MCP サーバー & ベクトル化仕様
     └── RELATIONSHIP_SPEC.md # ドキュメントトレーサビリティ仕様
 ```
+
+## MCP サーバーの利用方法
+
+本アプリケーションには、Azure Functions Flex Consumption プランでデプロイされる MCP（Model Context Protocol）サーバーが含まれています。VS Code の GitHub Copilot などの MCP 対応クライアントから、ドキュメントのセマンティック検索・取得が可能です。
+
+### 接続情報の取得
+
+```bash
+# Function App 名と MCP キーを取得
+$rg = azd env get-value AZURE_RESOURCE_GROUP
+$funcName = az functionapp list --resource-group $rg --query "[0].name" -o tsv
+Write-Host "URL: https://$funcName.azurewebsites.net/runtime/webhooks/mcp"
+az functionapp keys list --resource-group $rg --name $funcName --query "systemKeys.mcp_extension" -o tsv
+```
+
+### VS Code での設定 (`.vscode/mcp.json`)
+
+```json
+{
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "mcp-key",
+            "description": "MCP Extension System Key",
+            "password": true
+        }
+    ],
+    "servers": {
+        "manufacturing-docs": {
+            "type": "http",
+            "url": "https://<FUNCTION_APP_NAME>.azurewebsites.net/runtime/webhooks/mcp",
+            "headers": {
+                "x-functions-key": "${input:mcp-key}"
+            }
+        }
+    }
+}
+```
+
+### 利用可能なツール
+
+| ツール | 説明 |
+|--------|------|
+| `search_documents` | 全ドキュメントに対するセマンティックベクトル検索 |
+| `get_document_detail` | ドキュメントの全内容・分類・Q&A を取得 |
+| `get_related_documents` | 上流/下流のドキュメント関係を取得 |

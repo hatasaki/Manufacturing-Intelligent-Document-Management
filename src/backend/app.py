@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 from flask import Flask
 
@@ -10,7 +11,9 @@ from routes.teams_routes import teams_bp
 from routes.document_routes import document_bp
 from routes.relationship_routes import relationship_bp
 
-logging.basicConfig(level=logging.INFO)
+# Ensure logs go to stderr (captured by App Service docker log)
+logging.basicConfig(level=logging.INFO, stream=sys.stderr,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config.from_object(Config)

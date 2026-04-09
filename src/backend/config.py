@@ -18,5 +18,8 @@ class Config:
     # Azure AI Foundry
     FOUNDRY_PROJECT_ENDPOINT = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
 
+    # Azure OpenAI (Embeddings)
+    AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+
     # Content Understanding
     CONTENT_UNDERSTANDING_ENDPOINT = os.environ.get("CONTENT_UNDERSTANDING_ENDPOINT", "")

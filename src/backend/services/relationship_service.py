@@ -32,9 +32,20 @@ REVERSE_RELATIONSHIP = {
 
 
 def init_worker(app):
-    """Store app reference for worker thread context. Called once at startup."""
-    # No-op; worker is lazy-started on first enqueue.
-    pass
+    """Recover stuck documents and re-enqueue them on startup."""
+    try:
+        with app.app_context():
+            cosmos = app.config["COSMOS_SERVICE"]
+            all_docs = cosmos.query_documents_by_status(
+                statuses=["queued", "extracting"]
+            )
+            for doc in all_docs:
+                doc_id = doc["id"]
+                channel_id = doc["channelId"]
+                logger.info("Recovering stuck relationship extraction for %s", doc_id)
+                enqueue_relationship_extraction(app, doc_id, channel_id)
+    except Exception as e:
+        logger.warning("Startup recovery scan failed: %s", e)
 
 
 def enqueue_relationship_extraction(app, doc_id: str, channel_id: str) -> None:
@@ -57,6 +68,18 @@ def _worker_loop():
             _extract_relationships(app, doc_id, channel_id)
         except Exception as e:
             logger.error("Relationship extraction failed for %s: %s", doc_id, e, exc_info=True)
+            # Fallback: ensure status is never left at "extracting"
+            try:
+                with app.app_context():
+                    cosmos = app.config["COSMOS_SERVICE"]
+                    doc = cosmos.get_document(doc_id, channel_id)
+                    if doc and doc.get("relationshipStatus") == "extracting":
+                        doc["relationshipStatus"] = "error"
+                        doc["relationshipError"] = f"Unexpected error: {e}"
+                        doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+                        cosmos.upsert_document(doc)
+            except Exception:
+                logger.error("Failed to update error status for %s", doc_id, exc_info=True)
         finally:
             _queue.task_done()
 
@@ -76,26 +99,28 @@ def _extract_relationships(app, doc_id: str, channel_id: str) -> None:
         doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
         cosmos.upsert_document(doc)
 
-        # Step 1: Classify document
-        analysis = doc.get("analysis")
-        if not analysis or not analysis.get("extractedText"):
-            doc["relationshipStatus"] = "error"
-            doc["relationshipError"] = "No analysis text available for classification"
-            doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
-            cosmos.upsert_document(doc)
-            return
-
         try:
-            classification = agent_service.classify_document(analysis["extractedText"])
+            _do_extraction(cosmos, doc, doc_id, channel_id)
         except Exception as e:
-            logger.error("Document classification failed for %s: %s", doc_id, e)
+            logger.error("Relationship extraction error for %s: %s", doc_id, e, exc_info=True)
             doc = cosmos.get_document(doc_id, channel_id)
-            if doc:
+            if doc and doc.get("relationshipStatus") != "completed":
                 doc["relationshipStatus"] = "error"
-                doc["relationshipError"] = f"Classification failed: {e}"
+                doc["relationshipError"] = f"Extraction failed: {e}"
                 doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
                 cosmos.upsert_document(doc)
-            return
+
+
+def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
+    """Inner extraction logic. Exceptions propagate to caller for status update."""
+    # Step 1: Classify document (skip if already classified)
+    classification = doc.get("documentClassification")
+    if not classification:
+        analysis = doc.get("analysis")
+        if not analysis or not analysis.get("extractedText"):
+            raise ValueError("No analysis text available for classification")
+
+        classification = agent_service.classify_document(analysis["extractedText"])
 
         # Save classification
         now = datetime.now(timezone.utc)
@@ -107,118 +132,98 @@ def _extract_relationships(app, doc_id: str, channel_id: str) -> None:
         doc["updatedInDbAt"] = now.isoformat()
         cosmos.upsert_document(doc)
 
-        # Step 2: Get all docs in same channel
-        try:
-            all_docs = cosmos.query_documents(channel_id)
-        except Exception as e:
-            logger.error("Failed to query channel documents for %s: %s", doc_id, e)
-            doc = cosmos.get_document(doc_id, channel_id)
-            if doc:
-                doc["relationshipStatus"] = "error"
-                doc["relationshipError"] = f"Candidate query failed: {e}"
-                doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
-                cosmos.upsert_document(doc)
-            return
+    # Step 2: Get all docs in same channel
+    all_docs = cosmos.query_documents(channel_id)
 
-        # Step 3: Filter candidates
-        agent_candidates, reference_matches = find_candidates(
-            doc_id, classification, all_docs
+    # Step 3: Filter candidates
+    agent_candidates, reference_matches = find_candidates(
+        doc_id, classification, all_docs
+    )
+
+    # Build combined results
+    all_relationships = list(reference_matches)  # Start with programmatic references
+
+    # Step 4: Agent-based relationship analysis (only if we have candidates)
+    if agent_candidates:
+        source_meta = {
+            "docId": doc_id,
+            "stage": classification.get("stage", ""),
+            "title": classification.get("title", ""),
+            "summary": classification.get("summary", ""),
+            "documentNumber": classification.get("documentNumber"),
+            "referencedIds": classification.get("referencedIds", []),
+            "subsystem": classification.get("subsystem"),
+            "moduleName": classification.get("moduleName"),
+            "productFamily": classification.get("productFamily"),
+        }
+        candidate_metas = []
+        for c in agent_candidates:
+            c_cls = c.get("documentClassification", {})
+            candidate_metas.append({
+                "docId": c["id"],
+                "stage": c_cls.get("stage", ""),
+                "title": c_cls.get("title", ""),
+                "summary": c_cls.get("summary", ""),
+                "documentNumber": c_cls.get("documentNumber"),
+                "referencedIds": c_cls.get("referencedIds", []),
+                "subsystem": c_cls.get("subsystem"),
+                "moduleName": c_cls.get("moduleName"),
+                "productFamily": c_cls.get("productFamily"),
+            })
+
+        agent_results = agent_service.analyze_document_relationships(
+            source_meta, candidate_metas
         )
-
-        # Build combined results
-        all_relationships = list(reference_matches)  # Start with programmatic references
-
-        # Step 4: Agent-based relationship analysis (only if we have candidates)
-        if agent_candidates:
-            source_meta = {
-                "docId": doc_id,
-                "stage": classification.get("stage", ""),
-                "title": classification.get("title", ""),
-                "summary": classification.get("summary", ""),
-                "documentNumber": classification.get("documentNumber"),
-                "referencedIds": classification.get("referencedIds", []),
-                "subsystem": classification.get("subsystem"),
-                "moduleName": classification.get("moduleName"),
-                "productFamily": classification.get("productFamily"),
-            }
-            candidate_metas = []
-            for c in agent_candidates:
-                c_cls = c.get("documentClassification", {})
-                candidate_metas.append({
-                    "docId": c["id"],
-                    "stage": c_cls.get("stage", ""),
-                    "title": c_cls.get("title", ""),
-                    "summary": c_cls.get("summary", ""),
-                    "documentNumber": c_cls.get("documentNumber"),
-                    "referencedIds": c_cls.get("referencedIds", []),
-                    "subsystem": c_cls.get("subsystem"),
-                    "moduleName": c_cls.get("moduleName"),
-                    "productFamily": c_cls.get("productFamily"),
-                })
-
-            try:
-                agent_results = agent_service.analyze_document_relationships(
-                    source_meta, candidate_metas
-                )
-                for rel in agent_results:
-                    all_relationships.append({
-                        "targetDocId": rel.get("targetDocId", ""),
-                        "relationshipType": rel.get("relationshipType", ""),
-                        "confidence": rel.get("confidence", "low"),
-                        "reason": rel.get("reason", ""),
-                    })
-            except Exception as e:
-                logger.error("Relationship analysis agent failed for %s: %s", doc_id, e)
-                doc = cosmos.get_document(doc_id, channel_id)
-                if doc:
-                    doc["relationshipStatus"] = "error"
-                    doc["relationshipError"] = f"Relationship analysis failed: {e}"
-                    doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
-                    cosmos.upsert_document(doc)
-                return
-
-        # Step 5: Save bidirectional relationships
-        now = datetime.now(timezone.utc)
-        for rel in all_relationships:
-            rel["extractedAt"] = now.isoformat()
-
-        doc = cosmos.get_document(doc_id, channel_id)
-        if not doc:
-            return
-        doc["relationships"] = all_relationships
-        doc["relationshipStatus"] = "completed"
-        doc["relationshipError"] = None
-        doc["updatedInDbAt"] = now.isoformat()
-        cosmos.upsert_document(doc)
-
-        # Save reverse relationships to target documents
-        reverse_errors = []
-        for rel in all_relationships:
-            target_id = rel.get("targetDocId", "")
-            if not target_id:
-                continue
-            reverse_type = REVERSE_RELATIONSHIP.get(rel["relationshipType"], rel["relationshipType"])
-            reverse_rel = {
-                "targetDocId": doc_id,
-                "relationshipType": reverse_type,
+        for rel in agent_results:
+            all_relationships.append({
+                "targetDocId": rel.get("targetDocId", ""),
+                "relationshipType": rel.get("relationshipType", ""),
                 "confidence": rel.get("confidence", "low"),
                 "reason": rel.get("reason", ""),
-                "extractedAt": now.isoformat(),
-            }
-            try:
-                _append_relationship_to_target(cosmos, target_id, channel_id, reverse_rel)
-            except Exception as e:
-                logger.warning("Failed to save reverse relationship to %s: %s", target_id, e)
-                reverse_errors.append(f"{target_id}: {e}")
+            })
 
-        if reverse_errors:
-            doc = cosmos.get_document(doc_id, channel_id)
-            if doc:
-                doc["relationshipError"] = f"Partial reverse save failures: {'; '.join(reverse_errors)}"
-                doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
-                cosmos.upsert_document(doc)
+    # Step 5: Save bidirectional relationships
+    now = datetime.now(timezone.utc)
+    for rel in all_relationships:
+        rel["extractedAt"] = now.isoformat()
 
-        logger.info("Relationship extraction completed for %s: %d relationships", doc_id, len(all_relationships))
+    doc = cosmos.get_document(doc_id, channel_id)
+    if not doc:
+        return
+    doc["relationships"] = all_relationships
+    doc["relationshipStatus"] = "completed"
+    doc["relationshipError"] = None
+    doc["updatedInDbAt"] = now.isoformat()
+    cosmos.upsert_document(doc)
+
+    # Save reverse relationships to target documents
+    reverse_errors = []
+    for rel in all_relationships:
+        target_id = rel.get("targetDocId", "")
+        if not target_id:
+            continue
+        reverse_type = REVERSE_RELATIONSHIP.get(rel["relationshipType"], rel["relationshipType"])
+        reverse_rel = {
+            "targetDocId": doc_id,
+            "relationshipType": reverse_type,
+            "confidence": rel.get("confidence", "low"),
+            "reason": rel.get("reason", ""),
+            "extractedAt": now.isoformat(),
+        }
+        try:
+            _append_relationship_to_target(cosmos, target_id, channel_id, reverse_rel)
+        except Exception as e:
+            logger.warning("Failed to save reverse relationship to %s: %s", target_id, e)
+            reverse_errors.append(f"{target_id}: {e}")
+
+    if reverse_errors:
+        doc = cosmos.get_document(doc_id, channel_id)
+        if doc:
+            doc["relationshipError"] = f"Partial reverse save failures: {'; '.join(reverse_errors)}"
+            doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+            cosmos.upsert_document(doc)
+
+    logger.info("Relationship extraction completed for %s: %d relationships", doc_id, len(all_relationships))
 
 
 def _append_relationship_to_target(cosmos, target_doc_id: str, channel_id: str, reverse_rel: dict) -> None:

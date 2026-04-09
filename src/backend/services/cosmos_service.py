@@ -68,3 +68,19 @@ class CosmosService:
             query=query, parameters=params, partition_key=channel_id
         ))
         return items[0] if items else None
+
+    def query_documents_by_status(self, statuses: list[str]) -> list:
+        """Query documents with relationshipStatus in the given statuses (cross-partition)."""
+        self._ensure_initialized()
+        placeholders = ", ".join(f"@s{i}" for i in range(len(statuses)))
+        query = f"SELECT * FROM c WHERE c.relationshipStatus IN ({placeholders})"
+        params = [{"name": f"@s{i}", "value": s} for i, s in enumerate(statuses)]
+        items = self._container.query_items(
+            query=query, parameters=params, enable_cross_partition_query=True
+        )
+        return list(items)
+
+    def delete_document(self, doc_id: str, channel_id: str) -> None:
+        """Delete a document item from Cosmos DB."""
+        self._ensure_initialized()
+        self._container.delete_item(item=doc_id, partition_key=channel_id)

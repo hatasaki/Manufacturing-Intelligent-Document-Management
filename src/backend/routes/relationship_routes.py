@@ -1,9 +1,11 @@
 import logging
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request, current_app
 
 from services.auth_service import require_auth
 from services import graph_service
+from services import relationship_service
 
 logger = logging.getLogger(__name__)
 relationship_bp = Blueprint("relationships", __name__)
@@ -98,6 +100,37 @@ def get_relationships(doc_id):
     except Exception as e:
         logger.error("Failed to get relationships for %s: %s", doc_id, e)
         return jsonify({"error": "Failed to retrieve relationships"}), 500
+
+
+@relationship_bp.route("/documents/<doc_id>/relationships/retry", methods=["POST"])
+@require_auth
+def retry_relationships(doc_id):
+    """Re-trigger relationship extraction for a stuck document."""
+    data = request.json or {}
+    channel_id = data.get("channelId")
+    if not channel_id:
+        return jsonify({"error": "channelId is required"}), 400
+
+    cosmos = current_app.config["COSMOS_SERVICE"]
+
+    try:
+        doc = cosmos.get_document(doc_id, channel_id)
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+
+        doc["relationshipStatus"] = "queued"
+        doc["relationshipError"] = None
+        doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
+        cosmos.upsert_document(doc)
+
+        app = current_app._get_current_object()
+        relationship_service.enqueue_relationship_extraction(app, doc_id, channel_id)
+
+        return jsonify({"status": "queued"})
+
+    except Exception as e:
+        logger.error("Failed to retry relationships for %s: %s", doc_id, e)
+        return jsonify({"error": f"Failed to retry: {e}"}), 500
 
 
 @relationship_bp.route("/channels/<channel_id>/graph", methods=["GET"])

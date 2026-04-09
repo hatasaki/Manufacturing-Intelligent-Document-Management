@@ -101,6 +101,15 @@ const translations = {
         relStageDetailedDesign: "Detailed Design",
         relStageModuleDesign: "Module Design",
         relStageImplementation: "Implementation",
+        // Delete
+        btnDeleteDocument: "Delete Document",
+        deleteConfirmTitle: "Delete Document",
+        deleteConfirmMessage: "Are you sure you want to delete this document? This will remove the file from SharePoint and all related data from the database. This action cannot be undone.",
+        deleteConfirmOk: "Delete",
+        deleteConfirmCancel: "Cancel",
+        deleteSuccess: "Document has been deleted.",
+        deleteFailed: "Failed to delete document: {message}",
+        deleting: "Deleting...",
         // Date format locale
         dateLocale: "en-US",
     },
@@ -206,6 +215,15 @@ const translations = {
         relStageDetailedDesign: "詳細設計",
         relStageModuleDesign: "モジュール設計・実装準備",
         relStageImplementation: "実装",
+        // Delete
+        btnDeleteDocument: "ドキュメントを削除",
+        deleteConfirmTitle: "ドキュメントの削除",
+        deleteConfirmMessage: "このドキュメントを削除してもよろしいですか？SharePointからファイルが削除され、データベースからすべての関連データが削除されます。この操作は元に戻せません。",
+        deleteConfirmOk: "削除",
+        deleteConfirmCancel: "キャンセル",
+        deleteSuccess: "ドキュメントが削除されました。",
+        deleteFailed: "ドキュメントの削除に失敗しました: {message}",
+        deleting: "削除中...",
         // Date format locale
         dateLocale: "ja-JP",
     },

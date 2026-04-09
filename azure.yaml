@@ -3,101 +3,99 @@ name: manufacturing-smart-doc-mgmt
 metadata:
   template: manufacturing-smart-doc-mgmt
 hooks:
-  postprovision:
+  # ── preprovision: purge soft-deleted resources that block redeployment ──
+  preprovision:
     windows:
       shell: pwsh
       run: |
-        Write-Host "=== Building and deploying backend ==="
-        $rgName = (azd env get-value AZURE_RESOURCE_GROUP)
-        $appName = (azd env get-value SERVICE_BACKEND_NAME)
-        $clientId = (azd env get-value ENTRA_CLIENT_ID)
-        $tenantId = (azd env get-value ENTRA_TENANT_ID)
-
-        # Copy frontend into backend/static
-        if (Test-Path src/backend/static) { Remove-Item -Recurse -Force src/backend/static }
-        Copy-Item -Recurse src/frontend src/backend/static
-
-        # Substitute Entra ID values into frontend config
-        $configPath = "src/backend/static/js/config.js"
-        $configContent = Get-Content $configPath -Raw
-        $configContent = $configContent.Replace("__ENTRA_CLIENT_ID__", $clientId)
-        $configContent = $configContent.Replace("__ENTRA_TENANT_ID__", $tenantId)
-        Set-Content $configPath -Value $configContent
-        Write-Host "Injected Entra config: clientId=$clientId, tenantId=$tenantId"
-
-        # Create deployment ZIP (source code only — Oryx builds on server)
-        $zipPath = [System.IO.Path]::GetTempPath() + "backend-deploy.zip"
-        if (Test-Path $zipPath) { Remove-Item $zipPath }
-
-        Push-Location src/backend
-        $items = Get-ChildItem -Path . -Exclude '.venv','__pycache__','.python_packages','*.pyc'
-        Compress-Archive -Path $items -DestinationPath $zipPath -Force
-        Pop-Location
-
-        $sizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
-        Write-Host "Package created: $zipPath ($sizeMB MB)"
-
-        # Deploy via zipdeploy API (AAD auth, triggers Oryx build)
-        # --timeout 900 = wait up to 15 min for build + site startup
-        az webapp deployment source config-zip --resource-group $rgName --name $appName --src $zipPath --timeout 900
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "Deployment command returned non-zero exit code, checking site status..."
-          $state = (az webapp show --resource-group $rgName --name $appName --query "state" -o tsv)
-          if ($state -eq "Running") {
-            Write-Host "Site is running - deployment succeeded despite timeout"
-          } else {
-            Write-Host "Site state: $state - checking logs..."
-            throw "Deployment failed - site is not running"
-          }
+        $location = (azd env get-value AZURE_LOCATION)
+        $envName = (azd env get-value AZURE_ENV_NAME)
+        $deleted = az cognitiveservices account list-deleted --query "[?contains(name, '$envName')]" -o json 2>$null | ConvertFrom-Json
+        foreach ($acct in $deleted) {
+          $n = $acct.name; $rg = ($acct.id -split '/resourceGroups/')[1] -split '/' | Select-Object -First 1
+          Write-Host "Purging soft-deleted Cognitive Services: $n"
+          az cognitiveservices account purge --name $n --resource-group $rg --location $location 2>$null
         }
-        Write-Host "=== Deployment complete ==="
+    posix:
+      shell: sh
+      run: |
+        LOCATION=$(azd env get-value AZURE_LOCATION)
+        ENV_NAME=$(azd env get-value AZURE_ENV_NAME)
+        for ID in $(az cognitiveservices account list-deleted --query "[?contains(name, '$ENV_NAME')].id" -o tsv 2>/dev/null); do
+          NAME=$(echo "$ID" | grep -oP 'deletedAccounts/\K[^/]+')
+          RG=$(echo "$ID" | grep -oP 'resourceGroups/\K[^/]+')
+          echo "Purging soft-deleted Cognitive Services: $NAME"
+          az cognitiveservices account purge --name "$NAME" --resource-group "$RG" --location "$LOCATION" 2>/dev/null
+        done
 
-        # Create Cosmos DB database and container via ARM (control plane)
-        Write-Host "=== Creating Cosmos DB database and container ==="
-        $cosmosName = (azd env get-value COSMOS_DB_ACCOUNT_NAME)
-        az cosmosdb sql database create --account-name $cosmosName --resource-group $rgName --name "manufacturing-docs" 2>$null
-        az cosmosdb sql container create --account-name $cosmosName --resource-group $rgName --database-name "manufacturing-docs" --name "documents" --partition-key-path "/channelId" 2>$null
-        Write-Host "=== Cosmos DB setup complete ==="
+  # ── postdeploy: runs AFTER both provision and deploy are complete ──
+  # This ensures all Azure resources exist and code is deployed before
+  # configuring CU defaults, creating agents, and creating the vector container.
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        $rgName = (azd env get-value AZURE_RESOURCE_GROUP)
 
-        # Configure Content Understanding default model deployments
+        # 1. Configure Content Understanding default model deployments
         Write-Host "=== Configuring Content Understanding defaults ==="
         $cuEndpoint = (azd env get-value AI_FOUNDRY_ENDPOINT)
         $token = (az account get-access-token --resource "https://cognitiveservices.azure.com" --query accessToken -o tsv)
-        $cuBody = '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}'
+        $cuBodyPath = [System.IO.Path]::GetTempFileName()
+        Set-Content -Path $cuBodyPath -Value '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}' -Encoding utf8NoBOM
         $cuUrl = "${cuEndpoint}contentunderstanding/defaults?api-version=2025-11-01"
-        az rest --method PATCH --url $cuUrl --headers "Content-Type=application/json" "Authorization=Bearer $token" --body $cuBody 2>&1 | Out-Null
+        az rest --method PATCH --url $cuUrl --headers "Content-Type=application/json" "Authorization=Bearer $token" --body "@$cuBodyPath"
+        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: CU defaults configuration failed" }
+        Remove-Item $cuBodyPath -ErrorAction SilentlyContinue
         Write-Host "=== Content Understanding defaults configured ==="
 
-        # Create Foundry Agent Service agents
+        # 2. Create Foundry Agent Service agents
         Write-Host "=== Creating Foundry agents ==="
         $env:AI_FOUNDRY_ENDPOINT = (azd env get-value AI_FOUNDRY_ENDPOINT)
         $env:AI_FOUNDRY_PROJECT_NAME = (azd env get-value AI_FOUNDRY_PROJECT_NAME)
         pip install azure-ai-projects azure-identity --quiet 2>$null
         python scripts/create_agents.py
+        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Agent creation failed" }
         Write-Host "=== Agent setup complete ==="
+
+        # 3. Create vector search container (may retry if capability still propagating)
+        Write-Host "=== Creating vector search container ==="
+        $env:COSMOS_DB_ACCOUNT_NAME = (azd env get-value COSMOS_DB_ACCOUNT_NAME)
+        $env:AZURE_RESOURCE_GROUP = $rgName
+        python scripts/create_vector_container.py
+        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Vector container creation failed" }
+        Write-Host "=== Vector search container setup complete ==="
     posix:
       shell: sh
       run: |
-        echo "=== Building and deploying backend ==="
         RG_NAME=$(azd env get-value AZURE_RESOURCE_GROUP)
-        APP_NAME=$(azd env get-value SERVICE_BACKEND_NAME)
-        CLIENT_ID=$(azd env get-value ENTRA_CLIENT_ID)
-        TENANT_ID=$(azd env get-value ENTRA_TENANT_ID)
 
-        rm -rf src/backend/static
-        cp -r src/frontend src/backend/static
+        # 1. Configure Content Understanding default model deployments
+        echo "=== Configuring Content Understanding defaults ==="
+        CU_ENDPOINT=$(azd env get-value AI_FOUNDRY_ENDPOINT)
+        TOKEN=$(az account get-access-token --resource "https://cognitiveservices.azure.com" --query accessToken -o tsv)
+        CU_BODY_FILE=$(mktemp)
+        echo '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}' > "$CU_BODY_FILE"
+        az rest --method PATCH --url "${CU_ENDPOINT}contentunderstanding/defaults?api-version=2025-11-01" \
+          --headers "Content-Type=application/json" "Authorization=Bearer $TOKEN" --body "@$CU_BODY_FILE" || true
+        rm -f "$CU_BODY_FILE"
+        echo "=== Content Understanding defaults configured ==="
 
-        # Substitute Entra ID values into frontend config
-        sed -i "s/__ENTRA_CLIENT_ID__/$CLIENT_ID/g" src/backend/static/js/config.js
-        sed -i "s/__ENTRA_TENANT_ID__/$TENANT_ID/g" src/backend/static/js/config.js
+        # 2. Create Foundry Agent Service agents
+        echo "=== Creating Foundry agents ==="
+        export AI_FOUNDRY_ENDPOINT=$(azd env get-value AI_FOUNDRY_ENDPOINT)
+        export AI_FOUNDRY_PROJECT_NAME=$(azd env get-value AI_FOUNDRY_PROJECT_NAME)
+        pip install azure-ai-projects azure-identity --quiet 2>/dev/null
+        python scripts/create_agents.py || true
+        echo "=== Agent setup complete ==="
 
-        ZIP_PATH="/tmp/backend-deploy.zip"
-        cd src/backend
-        zip -r "$ZIP_PATH" . -x '*.pyc' '__pycache__/*' '.venv/*' '.python_packages/*'
-        cd ../..
+        # 3. Create vector search container
+        echo "=== Creating vector search container ==="
+        export COSMOS_DB_ACCOUNT_NAME=$(azd env get-value COSMOS_DB_ACCOUNT_NAME)
+        export AZURE_RESOURCE_GROUP="$RG_NAME"
+        python scripts/create_vector_container.py || true
+        echo "=== Vector search container setup complete ==="
 
-        az webapp deployment source config-zip --resource-group "$RG_NAME" --name "$APP_NAME" --src "$ZIP_PATH" --timeout 900 || true
-        echo "=== Deployment complete ==="
 services:
   backend:
     project: ./src/backend
@@ -123,3 +121,7 @@ services:
             cp -r ../frontend static
             sed -i "s/__ENTRA_CLIENT_ID__/$CLIENT_ID/g" static/js/config.js
             sed -i "s/__ENTRA_TENANT_ID__/$TENANT_ID/g" static/js/config.js
+  mcp-server:
+    project: ./src/mcp-server
+    host: function
+    language: python

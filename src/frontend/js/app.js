@@ -103,6 +103,12 @@ async function handleFileSelect(file) {
         const doc = await api.getDocument(file.docId, selectedChannelId);
         ui.renderFileDetails(doc, document.getElementById("file-details"));
 
+        // Wire up delete button
+        const btnDelete = document.getElementById("btn-delete-document");
+        if (btnDelete) {
+            btnDelete.addEventListener("click", () => handleDeleteDocument(doc.id, selectedChannelId));
+        }
+
         // Register callback for lazy-loading enriched relationship data
         window._loadEnrichedRelationships = async (docId, channelId) => {
             try {
@@ -254,7 +260,7 @@ async function pollProcessingStatus(docId) {
 
 async function pollRelationships(docId) {
     const POLL_INTERVAL = 5000;
-    const MAX_POLLS = 60; // 5 minutes max
+    const MAX_POLLS = 360; // 30 minutes max (30 files can take 15+ min)
     for (let i = 0; i < MAX_POLLS; i++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL));
         try {
@@ -277,6 +283,9 @@ function startQuestionFlow(docId, questions) {
             ui.renderModalComplete(
                 t("thankYouComplete")
             );
+            api.completeQuestions(docId, selectedChannelId).catch(err => {
+                console.error("Failed to complete questions:", err);
+            });
             loadFiles().then(() => selectFileByDocId(docId));
             return;
         }
@@ -335,6 +344,36 @@ function startQuestionFlow(docId, questions) {
     }
 
     showNext();
+}
+
+async function handleDeleteDocument(docId, channelId) {
+    const confirmed = await ui.showConfirmDialog(
+        t("deleteConfirmTitle"),
+        t("deleteConfirmMessage"),
+        t("deleteConfirmOk"),
+        t("deleteConfirmCancel"),
+    );
+    if (!confirmed) return;
+
+    const btn = document.getElementById("btn-delete-document");
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = t("deleting");
+    }
+
+    try {
+        await api.deleteDocument(docId, channelId);
+        ui.showToast(t("deleteSuccess"));
+        document.getElementById("file-details").innerHTML =
+            `<p class="placeholder-text">${ui.escapeHtmlPublic(t("selectFilePlaceholder"))}</p>`;
+        await loadFiles();
+    } catch (err) {
+        ui.showToast(t("deleteFailed", { message: err.message }), true);
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = t("btnDeleteDocument");
+        }
+    }
 }
 
 function handleLangToggle() {

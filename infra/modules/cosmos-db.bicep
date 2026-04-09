@@ -27,6 +27,9 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
       {
         name: 'EnableServerless'
       }
+      {
+        name: 'EnableNoSQLVectorSearch'
+      }
     ]
     // Disable key-based authentication — Managed Identity (RBAC) only
     disableLocalAuth: true
@@ -39,8 +42,21 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   }
 }
 
-// Database and container are created at app startup via SDK using Managed Identity (RBAC)
-// because disableKeyBasedMetadataWriteAccess prevents ARM from creating them
+// Database
+resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-05-15' = {
+  parent: cosmosAccount
+  name: 'manufacturing-docs'
+  properties: {
+    resource: {
+      id: 'manufacturing-docs'
+    }
+  }
+}
+
+// NOTE: The documents container (with vector embedding policies) is created
+// by postdeploy hook (scripts/create_vector_container.py) via ARM REST API.
+// This is because EnableNoSQLVectorSearch capability can take up to 15 minutes
+// to propagate after account creation. The script retries automatically.
 
 output endpoint string = cosmosAccount.properties.documentEndpoint
 output name string = cosmosAccount.name

@@ -1,0 +1,22 @@
+{
+    "version": "2.0",
+    "logging": {
+        "applicationInsights": {
+            "samplingSettings": {
+                "isEnabled": true,
+                "excludedTypes": "Request"
+            }
+        }
+    },
+    "extensionBundle": {
+        "id": "Microsoft.Azure.Functions.ExtensionBundle",
+        "version": "[4.*, 5.0.0)"
+    },
+    "extensions": {
+        "mcp": {
+            "serverName": "manufacturing-docs-mcp",
+            "serverVersion": "1.0.0",
+            "instructions": "Manufacturing document management MCP server. Provides tools to search documents by semantic similarity, retrieve document details and follow-up Q&A, and explore document relationships (upstream/downstream dependencies)."
+        }
+    }
+}

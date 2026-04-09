@@ -2,5 +2,7 @@
   "resourcesResourceGroups": "rg-",
   "documentDBDatabaseAccounts": "cosmos-",
   "webServerFarms": "plan-",
-  "webSitesAppService": "app-"
+  "webSitesAppService": "app-",
+  "storageStorageAccounts": "st",
+  "webSitesFunctions": "func-"
 }

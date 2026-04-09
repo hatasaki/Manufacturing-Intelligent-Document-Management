@@ -86,3 +86,17 @@ export async function getDocumentRelationships(docId, channelId) {
 export async function getChannelGraph(channelId) {
     return apiRequest(`/channels/${encodeURIComponent(channelId)}/graph`);
 }
+
+export async function completeQuestions(docId, channelId) {
+    return apiRequest(`/documents/${encodeURIComponent(docId)}/complete-questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+    });
+}
+
+export async function deleteDocument(docId, channelId) {
+    return apiRequest(`/documents/${encodeURIComponent(docId)}?channelId=${encodeURIComponent(channelId)}`, {
+        method: "DELETE",
+    });
+}

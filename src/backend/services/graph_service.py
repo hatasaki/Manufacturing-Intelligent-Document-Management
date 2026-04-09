@@ -107,3 +107,15 @@ def set_custom_field(drive_id: str, item_id: str, field_name: str, field_value: 
 
 def get_drive_item(drive_id: str, item_id: str) -> dict:
     return _get(f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}")
+
+
+def delete_drive_item(drive_id: str, item_id: str) -> None:
+    """Delete a file from SharePoint/OneDrive via Graph API."""
+    def call():
+        resp = requests.delete(
+            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}",
+            headers=_headers(),
+            timeout=30,
+        )
+        resp.raise_for_status()
+    retry_with_backoff(call)
