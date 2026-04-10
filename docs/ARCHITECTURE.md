@@ -32,6 +32,7 @@ graph TB
             CU_SVC["content_understanding_service.py<br/>ドキュメント分析"]
             AGENT_SVC["agent_service.py<br/>Foundry Agent 呼び出し"]
             REL_SVC["relationship_service.py<br/>関係抽出 (逐次キュー)"]
+            EMB_SVC["embedding_service.py<br/>ベクトル化 (text-embedding-3-large)"]
         end
     end
 
@@ -227,13 +228,19 @@ sequenceDiagram
     Route->>CU_SVC: analyze_document(file_content, deep_analysis)
     CU_SVC->>CU_SVC: DefaultAzureCredential で認証
     CU_SVC->>CU_SVC: analyzer_id = deep_analysis ?<br/>"prebuilt-documentSearch" : "prebuilt-document"
-    CU_SVC->>CU: begin_analyze(analyzer_id,<br/>input=AnalysisInput(data, mime_type="application/pdf"))
+    CU_SVC->>CU: begin_analyze_binary(analyzer_id,<br/>binary_input=file_content, content_type="application/pdf")
     Note over CU: 非同期 LRO (Long Running Operation)
     CU->>Model: PDF 解析実行
     Model-->>CU: AnalysisResult
     CU-->>CU_SVC: poller.result()
-    CU_SVC->>CU_SVC: result.contents[0].markdown → extractedText
-    CU_SVC->>CU_SVC: figures (説明埋め込み済み), tables, keyValuePairs 抽出
+    alt contents が空 & analyzer_id == "prebuilt-documentSearch"
+        CU_SVC->>CU: フォールバック: begin_analyze_binary("prebuilt-document", ...)
+        CU-->>CU_SVC: AnalysisResult (フォールバック)
+    end
+    CU_SVC->>CU_SVC: 全 contents 要素からテキスト集約
+    Note over CU_SVC: markdown → paragraphs → pages.lines のフォールバック
+    CU_SVC->>CU_SVC: figures, tables, keyValuePairs 抽出
+    CU_SVC->>CU_SVC: extractedText が 800K 文字超の場合截断
     CU_SVC-->>Route: analysis dict
     Note over CU_SVC: リトライ: 最大3回, 指数バックオフ (2s, 4s, 8s)
 ```

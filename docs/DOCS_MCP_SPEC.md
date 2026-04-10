@@ -20,7 +20,7 @@
 │       ▼                                                              │
 │  [ベクトル化パイプライン]                                              │
 │       │  Azure OpenAI Embeddings API                                 │
-│       │  (text-embedding-3-small, 1536次元)                          │
+│       │  (text-embedding-3-large, 1536次元)                         │
 │       ▼                                                              │
 │  CosmosDB "documents" コンテナ                                        │
 │   ├─ 既存フィールド (analysis, followUpQuestions, relationships 等)    │
@@ -113,7 +113,7 @@ A2: {followUpQuestions[1].answer}
 
 | 項目 | 値 |
 |---|---|
-| モデル | `text-embedding-3-small` |
+| モデル | `text-embedding-3-large` |
 | 次元数 | 1536 |
 | プロバイダー | Azure OpenAI (Azure AI Foundry 経由) |
 | 認証 | Managed Identity (`DefaultAzureCredential`) |
@@ -130,7 +130,7 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = "text-embedding-3-large"
 EMBEDDING_DIMENSIONS = 1536
 
 

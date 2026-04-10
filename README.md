@@ -122,7 +122,8 @@ azd up
 This automatically provisions:
 - **Azure Cosmos DB** (Serverless, RBAC-only)
 - **Microsoft Foundry** (AI Services + Project)
-- **Model deployments** (gpt-4.1-mini, text-embedding-3-large)
+- **Model deployments** (gpt-4.1-mini 100K TPM, text-embedding-3-large 100K TPM)
+- **Content Understanding defaults** (model deployment mappings for `prebuilt-documentSearch`)
 - **Foundry Agents**:
   - `question-generator-agent` — Follow-up question generation
   - `answer-analysis-agent` — Answer sufficiency evaluation
@@ -166,9 +167,12 @@ python app.py
 │       ├── app-service.bicep
 │       ├── app-service-plan.bicep
 │       ├── cosmos-db.bicep
-│       └── cosmos-role-assignment.bicep
+│       ├── cosmos-role-assignment.bicep
+│       ├── mcp-app-insights.bicep
+│       ├── mcp-function.bicep
+│       └── mcp-storage.bicep
 ├── scripts/
-│   ├── create_agents.py    # Foundry Agent creation (postprovision hook)
+│   ├── create_agents.py    # Foundry Agent creation (postdeploy hook)
 │   └── create_vector_container.py  # Cosmos DB container with vector indexes
 ├── src/
 │   ├── backend/            # Flask API
@@ -381,7 +385,8 @@ azd up
 以下が自動的にプロビジョニングされます:
 - **Azure Cosmos DB**（サーバーレス、RBAC のみ）
 - **Microsoft Foundry**（AI Services + Project）
-- **モデルデプロイメント**（gpt-4.1-mini, text-embedding-3-large）
+- **モデルデプロイメント**（gpt-4.1-mini 100K TPM, text-embedding-3-large 100K TPM）
+- **Content Understanding デフォルト設定**（`prebuilt-documentSearch` 用モデルマッピング）
 - **Foundry エージェント**:
   - `question-generator-agent` — フォローアップ質問の生成
   - `answer-analysis-agent` — 回答の十分性評価
@@ -425,9 +430,12 @@ python app.py
 │       ├── app-service.bicep
 │       ├── app-service-plan.bicep
 │       ├── cosmos-db.bicep
-│       └── cosmos-role-assignment.bicep
+│       ├── cosmos-role-assignment.bicep
+│       ├── mcp-app-insights.bicep
+│       ├── mcp-function.bicep
+│       └── mcp-storage.bicep
 ├── scripts/
-│   ├── create_agents.py    # Foundry エージェント作成（postprovision フック）
+│   ├── create_agents.py    # Foundry エージェント作成（postdeploy フック）
 │   └── create_vector_container.py  # ベクトルインデックス付き Cosmos DB コンテナ作成
 ├── src/
 │   ├── backend/            # Flask API

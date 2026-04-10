@@ -30,6 +30,7 @@
 |------|-----------|------|
 | Details | `.tab-details` | 既存のファイル詳細 (メタデータ・分析結果ボタン・フォローアップ質問) |
 | Trace | `.tab-relationships` | ドキュメント分類情報・関連ドキュメント一覧 |
+| Graph | `.tab-graph` | チャネル全体の依存関係グラフ (左→右のステージ別配置、フィルタ、ドラッグスクロール) |
 
 ### Trace タブの表示内容
 
@@ -142,6 +143,8 @@ Step 5. 結果を Cosmos DB に双方向保存
 Content Understanding で抽出済みの `extractedText` をエージェントに送信し、以下の構造化データを抽出する。
 
 **入力**: `analysis.extractedText` (既に Cosmos DB に保存されている分析テキスト)
+
+> **フォールバック**: `extractedText` が空の場合、`_build_classification_text()` 関数が figures の description、keyValuePairs、tables からテキストを構築して分類を試みる。また、`doc.lang` フィールド（アップロード時の言語）を `classify_document()` に渡し、日本語ユーザーには日本語で分類結果を生成する。
 
 **出力**:
 ```json

@@ -27,6 +27,7 @@
 | `azure-ai-projects` | Foundry Agent Service SDK (v2.0.0+) |
 | `azure-cosmos` | Cosmos DB NoSQL SDK (v4.7+) |
 | `azure-identity` | Azure 認証 (DefaultAzureCredential) |
+| `openai` | Azure OpenAI Embeddings (text-embedding-3-large) |
 
 ### JavaScript ライブラリ (フロントエンド)
 
@@ -52,7 +53,8 @@
 │       ├── cosmos-db.bicep
 │       └── cosmos-role-assignment.bicep
 ├── scripts/
-│   └── create_agents.py    # Foundry Agent 自動作成スクリプト
+│   ├── create_agents.py    # Foundry Agent 自動作成スクリプト
+│   └── create_vector_container.py  # ベクトルインデックス付き Cosmos DB コンテナ作成
 ├── src/
 │   ├── frontend/           # フロントエンド (JavaScript)
 │   │   ├── index.html
@@ -64,25 +66,31 @@
 │   │       ├── config.js
 │   │       ├── i18n.js
 │   │       └── ui.js
-│   └── backend/            # バックエンド API (Python / Flask)
-│       ├── app.py
-│       ├── config.py
-│       ├── requirements.txt
-│       ├── routes/
-│       │   ├── auth_routes.py
-│       │   ├── teams_routes.py
-│       │   ├── document_routes.py
-│       │   └── relationship_routes.py
-│       └── services/
-│           ├── auth_service.py
-│           ├── graph_service.py
-│           ├── cosmos_service.py
-│           ├── content_understanding_service.py
-│           ├── agent_service.py
-│           └── relationship_service.py
+│   ├── backend/            # バックエンド API (Python / Flask)
+│   │   ├── app.py
+│   │   ├── config.py
+│   │   ├── requirements.txt
+│   │   ├── routes/
+│   │   │   ├── auth_routes.py
+│   │   │   ├── teams_routes.py
+│   │   │   ├── document_routes.py
+│   │   │   └── relationship_routes.py
+│   │   └── services/
+│   │       ├── auth_service.py
+│   │       ├── graph_service.py
+│   │       ├── cosmos_service.py
+│   │       ├── content_understanding_service.py
+│   │       ├── agent_service.py
+│   │       ├── embedding_service.py
+│   │       └── relationship_service.py
+│   └── mcp-server/         # MCP サーバー (Azure Functions)
+│       ├── function_app.py
+│       ├── host.json
+│       └── requirements.txt
 └── docs/
     ├── APP_SPEC.md
     ├── ARCHITECTURE.md
+    ├── DOCS_MCP_SPEC.md
     └── RELATIONSHIP_SPEC.md
 ```
 
@@ -239,14 +247,29 @@
   - **OFF (デフォルト)**: `prebuilt-document` — 高速なテキスト抽出、テーブル、キー・バリューペア抽出
   - **ON**: `prebuilt-documentSearch` (RAG 用アナライザー) — 図の検出・説明生成 (チャート: chart.js、ダイアグラム: mermaid.js)、テーブル、キー・バリューペア、サマリー生成
 - **切り替え方法**: ヘッダー右側の「Deep Analysis」トグルスイッチでアップロード時に選択。フロントエンドから `deepAnalysis` パラメータでバックエンドに送信
-- **入力**: `AnalysisInput(data=file_content, mime_type="application/pdf")`
-- **出力**: `AnalysisResult` — `result.contents[0].markdown` で抽出テキスト取得 (Deep Analysis ON 時は図の説明がマークダウン内に埋め込み)
+- **入力**: `begin_analyze_binary(analyzer_id, binary_input=file_content, content_type="application/pdf")`
+- **出力**: `AnalysisResult` — 全 `contents` 要素の `markdown` からテキスト集約 (Deep Analysis ON 時は図の説明がマークダウン内に埋め込み)
+- **フォールバック処理**:
+  - `prebuilt-documentSearch` が空の結果 (`contents: []`) を返した場合、自動的に `prebuilt-document` で再試行
+  - `markdown` が `None` の場合、`paragraphs[].content` → `pages[].lines[].content` の順でテキスト抽出
+  - 抽出テキストが 800,000 文字を超えた場合は Cosmos DB サイズ制限対策として自動截断
 - **前提設定**: Foundry リソースに Content Understanding デフォルト設定が必要:
   ```
   PATCH {endpoint}/contentunderstanding/defaults?api-version=2025-11-01
-  { "modelDeployments": { "gpt-4.1-mini": "gpt-41-mini", "text-embedding-3-large": "text-embedding-3-large" } }
+  {
+    "modelDeployments": {
+      "gpt-4.1": "gpt-41-mini",
+      "gpt-4.1-mini": "gpt-41-mini",
+      "gpt-4o": "gpt-41-mini",
+      "gpt-4o-mini": "gpt-41-mini",
+      "prebuilt-analyzer-completion": "gpt-41-mini",
+      "prebuilt-analyzer-completion-mini": "gpt-41-mini",
+      "prebuilt-analyzer-embedding": "text-embedding-3-large",
+      "text-embedding-3-large": "text-embedding-3-large"
+    }
+  }
   ```
-  この設定は `azd up` の postprovision hook で自動実行される
+  この設定は `azd up` の postdeploy hook で自動実行される。**特に `prebuilt-analyzer-completion` のマッピングがないと `prebuilt-documentSearch` が空の結果を返す**
 
 ### 6. フォローアップ質問生成 (質問作成エージェント)
 
@@ -364,9 +387,15 @@
   "relationshipError": null,         // 関係抽出エラー詳細
 
   // === メタ情報 ===
+  "lang": "ja",                       // 分析時の言語 ("en" | "ja")
   "version": 1,
   "createdInDbAt": "2026-03-15T14:35:00Z",
-  "updatedInDbAt": "2026-03-15T15:05:00Z"
+  "updatedInDbAt": "2026-03-15T15:05:00Z",
+
+  // === ベクトルデータ (詳細は DOCS_MCP_SPEC.md 参照) ===
+  "contentVector": [0.012, -0.034, ...],  // float32[1536] ドキュメント内容ベクトル
+  "qaVector": [0.056, 0.011, ...],        // float32[1536] Q&A ベクトル
+  "vectorizedAt": "2026-03-15T16:00:00Z"  // ベクトル化実行日時
 }
 ```
 
@@ -385,6 +414,9 @@
 | `POST` | `/api/documents/{doc_id}/generate-questions` | フォローアップ質問生成 |
 | `POST` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 質問への回答送信・分析 (最大 3 往復) |
 | `PUT` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 既存回答の更新 (ベクトル再生成を伴う) |
+| `POST` | `/api/documents/{doc_id}/complete-questions` | 質問フロー完了・ベクトル化トリガー |
+| `DELETE` | `/api/documents/{doc_id}?channelId={channelId}` | ドキュメント削除 (SharePoint + Cosmos DB + 関係クリーンアップ) |
+| `POST` | `/api/documents/{doc_id}/relationships/retry` | 関係抽出の再実行 |
 | `GET` | `/api/me` | ログインユーザー情報取得 |
 
 ---
@@ -399,21 +431,24 @@
 | Azure Cosmos DB | cosmos-db.bicep | Serverless, `disableLocalAuth: true`, `publicNetworkAccess: Enabled` |
 | Microsoft Foundry (AIServices) | ai-foundry.bicep | `kind: AIServices`, `allowProjectManagement: true`, `disableLocalAuth: true`, API `2025-06-01` |
 | Foundry Project | ai-foundry.bicep | 子リソース `/projects`, SystemAssigned Identity |
-| gpt-4.1-mini デプロイメント | ai-foundry.bicep | デプロイメント名 `gpt-41-mini`, GlobalStandard, capacity 10 |
-| text-embedding-3-large デプロイメント | ai-foundry.bicep | GlobalStandard, capacity 10 |
+| gpt-4.1-mini デプロイメント | ai-foundry.bicep | デプロイメント名 `gpt-41-mini`, GlobalStandard, capacity 100 |
+| text-embedding-3-large デプロイメント | ai-foundry.bicep | GlobalStandard, capacity 100 |
 | App Service Plan | app-service-plan.bicep | Linux, B1 SKU |
 | App Service | app-service.bicep | Python 3.10, SystemAssigned Identity, SCM/FTP Basic Auth 無効 |
 | Cosmos DB RBAC | cosmos-role-assignment.bicep | Data Contributor + DocumentDB Account Contributor |
-| AI Foundry RBAC | ai-foundry-role-assignment.bicep | Cognitive Services User |
+| AI Foundry RBAC | ai-foundry-role-assignment.bicep | Cognitive Services User |\n| MCP Function App | mcp-function.bicep | Azure Functions Flex Consumption, Python 3.10 |\n| MCP Storage | mcp-storage.bicep | MCP Function App 用ストレージアカウント |\n| MCP Application Insights | mcp-app-insights.bicep | MCP Function App 用監視 |
 
-### postprovision hook で実行される追加セットアップ
+### postdeploy hook で実行される追加セットアップ
+
+1. **MCP サーバーデプロイ** (`az functionapp deployment source config-zip`)
+2. **Content Understanding デフォルト設定** (`PATCH /contentunderstanding/defaults` — 8つのモデルマッピング)
+3. **Foundry Agent 作成** (`scripts/create_agents.py` — `question-generator-agent`, `answer-analysis-agent`, `doc-classifier-agent`, `relationship-analyzer-agent`)
+4. **Cosmos DB ベクトルインデックス付きコンテナ作成** (`scripts/create_vector_container.py` — ARM REST API 経由)
+
+### predeploy hook で実行されるフロントエンド統合
 
 1. **フロントエンド静的ファイルのコピー** (`src/frontend` → `src/backend/static`)
 2. **Entra ID 値の config.js 注入** (`__ENTRA_CLIENT_ID__`, `__ENTRA_TENANT_ID__` 置換)
-3. **ZIP デプロイ** (`az webapp deployment source config-zip`, Oryx ビルド)
-4. **Cosmos DB データベース/コンテナ作成** (`az cosmosdb sql database/container create`)
-5. **Content Understanding デフォルト設定** (`PATCH /contentunderstanding/defaults`)
-6. **Foundry Agent 作成** (`scripts/create_agents.py` — `question-generator-agent`, `answer-analysis-agent`, `doc-classifier-agent`, `relationship-analyzer-agent`)
 
 ---
 
