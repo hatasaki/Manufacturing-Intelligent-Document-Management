@@ -45,10 +45,15 @@ graph TB
         REL_WORKER["Relationship Worker<br/>(Sequential Queue)"]
     end
 
+    subgraph "Azure Functions (Flex Consumption)"
+        MCP["MCP Server<br/>search_documents<br/>get_document_detail<br/>get_related_documents"]
+    end
+
     subgraph "Azure AI Foundry"
         CU["Content Understanding<br/>PDF Analysis"]
         AGENTS["4 Prompt Agents<br/>question-generator<br/>answer-analysis<br/>doc-classifier<br/>relationship-analyzer"]
         GPT["gpt-4.1-mini"]
+        EMB["text-embedding-3-large"]
     end
 
     subgraph "Data & Auth"
@@ -56,6 +61,10 @@ graph TB
         ENTRA["Microsoft Entra ID"]
         GRAPH["Microsoft Graph API"]
         SP["SharePoint Online<br/>(Teams Files)"]
+    end
+
+    subgraph "MCP Clients"
+        MCP_CLIENT["GitHub Copilot<br/>VS Code 等"]
     end
 
     FE -->|"PKCE Auth"| ENTRA
@@ -66,10 +75,14 @@ graph TB
     BE -->|"Managed Identity"| COSMOS
     BE -->|"Managed Identity"| CU
     BE -->|"Managed Identity"| AGENTS
+    BE -->|"Managed Identity"| EMB
     AGENTS --> GPT
     CU --> GPT
     REL_WORKER -->|"Sequential"| AGENTS
     REL_WORKER -->|"Bidirectional Save"| COSMOS
+    MCP_CLIENT -->|"Streamable HTTP"| MCP
+    MCP -->|"Vector Search"| COSMOS
+    MCP -->|"Query Embedding"| EMB
 ```
 
 ### Technology Stack
@@ -308,10 +321,15 @@ graph TB
         REL_WORKER["リレーションシップワーカー<br/>（逐次キュー）"]
     end
 
+    subgraph "Azure Functions (Flex Consumption)"
+        MCP["MCP サーバー<br/>search_documents<br/>get_document_detail<br/>get_related_documents"]
+    end
+
     subgraph "Azure AI Foundry"
         CU["Content Understanding<br/>PDF 解析"]
         AGENTS["4 つのプロンプトエージェント<br/>question-generator<br/>answer-analysis<br/>doc-classifier<br/>relationship-analyzer"]
         GPT["gpt-4.1-mini"]
+        EMB["text-embedding-3-large"]
     end
 
     subgraph "データ & 認証"
@@ -319,6 +337,10 @@ graph TB
         ENTRA["Microsoft Entra ID"]
         GRAPH["Microsoft Graph API"]
         SP["SharePoint Online<br/>（Teams ファイル）"]
+    end
+
+    subgraph "MCP クライアント"
+        MCP_CLIENT["GitHub Copilot<br/>VS Code 等"]
     end
 
     FE -->|"PKCE 認証"| ENTRA
@@ -329,10 +351,14 @@ graph TB
     BE -->|"マネージド ID"| COSMOS
     BE -->|"マネージド ID"| CU
     BE -->|"マネージド ID"| AGENTS
+    BE -->|"マネージド ID"| EMB
     AGENTS --> GPT
     CU --> GPT
     REL_WORKER -->|"逐次処理"| AGENTS
     REL_WORKER -->|"双方向保存"| COSMOS
+    MCP_CLIENT -->|"Streamable HTTP"| MCP
+    MCP -->|"ベクトル検索"| COSMOS
+    MCP -->|"クエリ埋め込み"| EMB
 ```
 
 ### 技術スタック

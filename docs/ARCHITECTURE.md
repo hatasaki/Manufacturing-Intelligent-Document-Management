@@ -36,6 +36,13 @@ graph TB
         end
     end
 
+    subgraph "Azure Functions (Flex Consumption / Python 3.11)"
+        MCP_APP["function_app.py<br/>MCP Server"]
+        MCP_SEARCH["search_documents<br/>ベクトル類似検索"]
+        MCP_DETAIL["get_document_detail<br/>ドキュメント詳細取得"]
+        MCP_RELATED["get_related_documents<br/>関連文書取得"]
+    end
+
     subgraph "Azure Services"
         ENTRA["Microsoft Entra ID"]
         GRAPH["Microsoft Graph API"]
@@ -48,7 +55,23 @@ graph TB
         AGENT_C["文書分類エージェント<br/>(doc-classifier-agent)"]
         AGENT_R["関係分析エージェント<br/>(relationship-analyzer-agent)"]
         GPT["gpt-4.1-mini<br/>Model Deployment"]
+        AOAI_EMB["Azure OpenAI<br/>text-embedding-3-large"]
     end
+
+    subgraph "MCP Clients"
+        MCP_CLIENT["GitHub Copilot / VS Code 等<br/>Streamable HTTP"]
+    end
+
+    MCP_CLIENT -->|"Streamable HTTP<br/>/runtime/webhooks/mcp"| MCP_APP
+    MCP_APP --> MCP_SEARCH
+    MCP_APP --> MCP_DETAIL
+    MCP_APP --> MCP_RELATED
+    MCP_SEARCH -->|"VectorDistance 検索"| COSMOS
+    MCP_SEARCH -->|"クエリベクトル化"| AOAI_EMB
+    MCP_DETAIL -->|"DefaultAzureCredential"| COSMOS
+    MCP_RELATED -->|"DefaultAzureCredential"| COSMOS
+
+    EMB_SVC -->|"ベクトル化"| AOAI_EMB
 
     FE_AUTH -->|"1. PKCE ログイン"| ENTRA
     ENTRA -->|"2. Access Token"| FE_AUTH
@@ -679,6 +702,12 @@ graph TB
             EMB_DEP["text-embedding-3-large<br/>GlobalStandard / capacity 10"]
         end
 
+        subgraph "MCP Server"
+            MCP_FUNC["Azure Functions<br/>Flex Consumption (FC1)<br/>Python 3.11 / 2048MB<br/>SystemAssigned Identity"]
+            MCP_STORAGE["Storage Account<br/>Standard_LRS<br/>AzureWebJobsStorage"]
+            MCP_INSIGHTS["Application Insights<br/>+ Log Analytics Workspace"]
+        end
+
         subgraph "Security & Identity"
             MI_APP["App Service<br/>Managed Identity"]
             MI_PROJ["Foundry Project<br/>Managed Identity"]
@@ -702,10 +731,15 @@ graph TB
     MI_APP --> RBAC_AI --> AI_SVC
     APP --> ENTRA
     APP --> GRAPH --> SP
+    MCP_FUNC -->|"Managed Identity"| COSMOS
+    MCP_FUNC -->|"Managed Identity"| AI_SVC
+    MCP_FUNC --> MCP_STORAGE
+    MCP_FUNC --> MCP_INSIGHTS
 
     style COSMOS fill:#e6f3ff
     style AI_SVC fill:#e6f3ff
     style APP fill:#e6f3ff
+    style MCP_FUNC fill:#e6f3ff
 ```
 
 ---
