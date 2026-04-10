@@ -95,6 +95,17 @@ export async function completeQuestions(docId, channelId) {
     });
 }
 
+export async function updateAnswer(docId, questionId, channelId, answer, answeredBy) {
+    return apiRequest(
+        `/documents/${encodeURIComponent(docId)}/questions/${encodeURIComponent(questionId)}/answer`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId, answer, answeredBy }),
+        }
+    );
+}
+
 export async function deleteDocument(docId, channelId) {
     return apiRequest(`/documents/${encodeURIComponent(docId)}?channelId=${encodeURIComponent(channelId)}`, {
         method: "DELETE",

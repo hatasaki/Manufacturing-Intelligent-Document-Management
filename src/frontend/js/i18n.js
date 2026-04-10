@@ -101,6 +101,15 @@ const translations = {
         relStageDetailedDesign: "Detailed Design",
         relStageModuleDesign: "Module Design",
         relStageImplementation: "Implementation",
+        // Edit answer
+        btnEditAnswer: "Edit",
+        btnAddAnswer: "Answer",
+        editAnswerPlaceholder: "Enter updated answer...",
+        btnCancelEdit: "Cancel",
+        btnSaveAnswer: "Save",
+        saving: "Saving...",
+        answerUpdateSuccess: "Answer updated and vectors refreshed.",
+        answerUpdateFailed: "Failed to update answer: {message}",
         // Delete
         btnDeleteDocument: "Delete Document",
         deleteConfirmTitle: "Delete Document",
@@ -215,6 +224,15 @@ const translations = {
         relStageDetailedDesign: "詳細設計",
         relStageModuleDesign: "モジュール設計・実装準備",
         relStageImplementation: "実装",
+        // Edit answer
+        btnEditAnswer: "編集",
+        btnAddAnswer: "回答する",
+        editAnswerPlaceholder: "更新する回答を入力...",
+        btnCancelEdit: "キャンセル",
+        btnSaveAnswer: "保存",
+        saving: "保存中...",
+        answerUpdateSuccess: "回答が更新され、ベクトルデータが再生成されました。",
+        answerUpdateFailed: "回答の更新に失敗しました: {message}",
         // Delete
         btnDeleteDocument: "ドキュメントを削除",
         deleteConfirmTitle: "ドキュメントの削除",

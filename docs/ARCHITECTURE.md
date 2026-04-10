@@ -22,7 +22,7 @@ graph TB
         subgraph "Routes"
             AUTH_ROUTE["auth_routes.py<br/>GET /api/me"]
             TEAMS_ROUTE["teams_routes.py<br/>GET /api/teams/channels<br/>GET /api/teams/.../files<br/>POST /api/teams/.../files"]
-            DOC_ROUTE["document_routes.py<br/>GET /api/documents/{id}<br/>POST .../generate-questions<br/>POST .../answer"]
+            DOC_ROUTE["document_routes.py<br/>GET /api/documents/{id}<br/>POST .../generate-questions<br/>POST .../answer<br/>PUT .../answer"]
             REL_ROUTE["relationship_routes.py<br/>GET /api/documents/{id}/relationships"]
         end
         subgraph "Services"
@@ -474,7 +474,8 @@ flowchart LR
         UPLOAD["ファイルアップロード<br/>POST .../files"] -->|"upsert"| DOC["documents コンテナ<br/>PK: /channelId"]
         ANALYZE["Content Understanding<br/>分析完了"] -->|"upsert (analysis)"| DOC
         GEN["質問生成<br/>agent"] -->|"upsert (followUpQuestions)"| DOC
-        ANS["回答送信<br/>POST .../answer"] -->|"upsert (conversationThread)"| DOC
+        ANS["回答送信<br/>POST .../answer"] -->|"全完了時 upsert (vectors)"| DOC
+        UPD_ANS["回答更新<br/>PUT .../answer"] -->|"upsert (answer + vectors)"| DOC
         REGEN["質問再生成<br/>POST .../generate-questions"] -->|"upsert (questionHistory 移動)"| DOC
     end
 
@@ -498,6 +499,7 @@ stateDiagram-v2
     Completed --> Answering: ユーザーが回答開始
     Answering --> Answered: 全質問回答完了/スキップ
     Answered --> Analyzing: 再アップロード/再生成<br/>(既存質問は questionHistory へ)
+    Answered --> Answered: 回答編集<br/>(PUT .../answer → 再ベクトル化)
     Error --> Analyzing: 再分析
     CompletedWithError --> Completed: 再生成
 ```
@@ -560,6 +562,7 @@ flowchart LR
         DOC["GET /api/documents/{docId}"]
         GENQ["POST /api/documents/{docId}/generate-questions"]
         ANSQ["POST /api/documents/{docId}/questions/{qId}/answer"]
+    UPDQ["PUT /api/documents/{docId}/questions/{qId}/answer"]
     end
 
     subgraph "外部サービス"
@@ -582,8 +585,9 @@ flowchart LR
     DOC -->|"get_document"| COSMOS
     GENQ -->|"generate_questions"| AGENT
     GENQ -->|"upsert_document"| COSMOS
-    ANSQ -->|"analyze_answer"| AGENT
+    ANSQ -->|"回答分析 + ベクトル化"| AGENT
     ANSQ -->|"upsert_document"| COSMOS
+    UPDQ -->|"回答更新 + ベクトル再生成"| COSMOS
 
     REL["GET /api/documents/{docId}/relationships"]
     REL -->|"関係情報取得"| COSMOS

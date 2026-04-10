@@ -270,6 +270,87 @@ def _try_vectorize(doc: dict, doc_id: str, cosmos) -> None:
         logger.error("Vectorization failed for %s: %s", doc_id, ve)
 
 
+@document_bp.route("/documents/<doc_id>/questions/<q_id>/answer", methods=["PUT"])
+@require_auth
+def update_answer(doc_id, q_id):
+    """Update an existing answer to a follow-up question and re-vectorize."""
+    data = request.json
+    if not data:
+        return jsonify({"error": "Request body required"}), 400
+
+    channel_id = data.get("channelId")
+    new_answer = data.get("answer", "")
+    answered_by = data.get("answeredBy", "")
+
+    if not channel_id or not new_answer:
+        return jsonify({"error": "channelId and answer are required"}), 400
+
+    cosmos = current_app.config["COSMOS_SERVICE"]
+
+    try:
+        doc = cosmos.get_document(doc_id, channel_id)
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+
+        question_obj = None
+        for q in doc.get("followUpQuestions", []):
+            if q["questionId"] == q_id:
+                question_obj = q
+                break
+
+        if not question_obj:
+            return jsonify({"error": "Question not found"}), 404
+
+        now = datetime.now(timezone.utc)
+
+        # Update the latest answer
+        question_obj["answer"] = new_answer
+        question_obj["answeredBy"] = answered_by
+        question_obj["answeredAt"] = now.isoformat()
+        question_obj["status"] = "answered"
+
+        # Replace the last user message in conversation thread, or append
+        thread = question_obj.get("conversationThread", [])
+        last_user_idx = None
+        for i in range(len(thread) - 1, -1, -1):
+            if thread[i].get("role") == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx is not None:
+            thread[last_user_idx]["text"] = new_answer
+            thread[last_user_idx]["timestamp"] = now.isoformat()
+            thread[last_user_idx]["answeredBy"] = answered_by
+            thread[last_user_idx]["edited"] = True
+        else:
+            thread.append({
+                "role": "user",
+                "text": new_answer,
+                "timestamp": now.isoformat(),
+                "answeredBy": answered_by,
+                "edited": True,
+            })
+
+        question_obj["conversationThread"] = thread
+        doc["updatedInDbAt"] = now.isoformat()
+        cosmos.upsert_document(doc)
+
+        # Re-vectorize since answer content changed
+        try:
+            doc = vectorize_document(doc)
+            doc["vectorizedAt"] = now.isoformat()
+            cosmos.upsert_document(doc)
+            logger.info("Document %s re-vectorized after answer update", doc_id)
+        except Exception as ve:
+            logger.error("Re-vectorization failed for %s: %s", doc_id, ve)
+
+        return jsonify({"status": "updated", "question": question_obj})
+
+    except Exception as e:
+        logger.error("Failed to update answer: %s", e)
+        return jsonify({"error": f"Failed to update answer: {e}"}), 500
+
+
 @document_bp.route("/documents/<doc_id>/complete-questions", methods=["POST"])
 @require_auth
 def complete_questions(doc_id):

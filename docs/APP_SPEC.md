@@ -156,6 +156,11 @@
 - ユーザーメッセージ: 青い左ボーダー (`.thread-msg-user`)
 - AI フィードバック: 灰色の左ボーダー (`.thread-msg-ai`)
 - 未回答の質問は「Not Available」バッジで表示
+- **回答の編集・追加機能**: 全ての質問（回答済み・未回答）に編集/回答ボタンを表示
+  - 回答済みの質問: 「編集」ボタン (`.btn-edit-answer`) — クリックでインライン編集フォームを展開
+  - 未回答（スキップ済み）の質問: 「回答する」ボタン — クリックで回答入力フォームを展開
+  - 編集フォーム: テキストエリア + 「保存」/「キャンセル」ボタン (`.edit-answer-form`)
+  - 保存時にバックエンドで回答を更新し、ベクトルデータ (`qaVector`, `contentVector`) を即座に再生成
 
 ### ファイル分析結果モーダル
 
@@ -338,7 +343,7 @@
       "conversationThread": [
         { "role": "user", "text": "About -40 to 120C", "timestamp": "...", "answeredBy": "..." },
         { "role": "assistant", "text": "Could you clarify the basis?", "timestamp": "...", "validation": "insufficient" },
-        { "role": "user", "text": "Based on MIL-STD-810G testing", "timestamp": "...", "answeredBy": "..." },
+        { "role": "user", "text": "Based on MIL-STD-810G testing", "timestamp": "...", "answeredBy": "...", "edited": true },
         { "role": "assistant", "text": "Thank you, that's clear.", "timestamp": "...", "validation": "sufficient" }
       ]
     }
@@ -379,6 +384,7 @@
 | `GET` | `/api/channels/{channel_id}/graph` | チャネル全体のグラフデータ取得 |
 | `POST` | `/api/documents/{doc_id}/generate-questions` | フォローアップ質問生成 |
 | `POST` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 質問への回答送信・分析 (最大 3 往復) |
+| `PUT` | `/api/documents/{doc_id}/questions/{q_id}/answer` | 既存回答の更新 (ベクトル再生成を伴う) |
 | `GET` | `/api/me` | ログインユーザー情報取得 |
 
 ---

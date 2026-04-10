@@ -351,7 +351,7 @@ function renderQuestionsList(questions) {
         return `<p class="placeholder-text">${escapeHtml(t("noQuestionsYet"))}</p>`;
     }
     return questions.map((q, i) => `
-        <div class="question-item">
+        <div class="question-item" data-question-id="${escapeHtml(q.questionId)}">
             <div class="question-text">Q${i + 1}: ${escapeHtml(q.question)}</div>
             <div class="question-answer">
                 ${q.status === "answered"
@@ -359,6 +359,19 @@ function renderQuestionsList(questions) {
                        ${renderConversationThread(q)}`
                     : `<span class="badge badge-pending">${escapeHtml(t("badgePending"))}</span>`
                 }
+                <div class="question-actions">
+                    <button class="btn btn-edit-answer btn-sm" data-question-id="${escapeHtml(q.questionId)}" data-question-index="${i}">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        ${escapeHtml(q.status === "answered" ? t("btnEditAnswer") : t("btnAddAnswer"))}
+                    </button>
+                </div>
+                <div class="edit-answer-form hidden" data-question-id="${escapeHtml(q.questionId)}">
+                    <textarea class="edit-answer-input" placeholder="${escapeHtml(t("editAnswerPlaceholder"))}" rows="3">${escapeHtml(q.answer || "")}</textarea>
+                    <div class="edit-answer-actions">
+                        <button class="btn btn-secondary btn-sm btn-cancel-edit" data-question-id="${escapeHtml(q.questionId)}">${escapeHtml(t("btnCancelEdit"))}</button>
+                        <button class="btn btn-primary btn-sm btn-save-answer" data-question-id="${escapeHtml(q.questionId)}">${escapeHtml(t("btnSaveAnswer"))}</button>
+                    </div>
+                </div>
             </div>
         </div>
     `).join("");
@@ -493,6 +506,48 @@ export function renderUploadProgress(message) {
         </div>
     `;
     showModal();
+}
+
+export function wireEditAnswerButtons(onSave) {
+    document.querySelectorAll('.btn-edit-answer').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const qId = btn.dataset.questionId;
+            const form = document.querySelector(`.edit-answer-form[data-question-id="${qId}"]`);
+            if (form) {
+                form.classList.toggle('hidden');
+                if (!form.classList.contains('hidden')) {
+                    form.querySelector('.edit-answer-input').focus();
+                }
+            }
+        });
+    });
+
+    document.querySelectorAll('.btn-cancel-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const qId = btn.dataset.questionId;
+            const form = document.querySelector(`.edit-answer-form[data-question-id="${qId}"]`);
+            if (form) form.classList.add('hidden');
+        });
+    });
+
+    document.querySelectorAll('.btn-save-answer').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const qId = btn.dataset.questionId;
+            const form = document.querySelector(`.edit-answer-form[data-question-id="${qId}"]`);
+            const input = form?.querySelector('.edit-answer-input');
+            const newAnswer = input?.value.trim();
+            if (!newAnswer) return;
+
+            btn.disabled = true;
+            btn.textContent = t("saving");
+            try {
+                await onSave(qId, newAnswer);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = t("btnSaveAnswer");
+            }
+        });
+    });
 }
 
 function escapeHtml(str) {

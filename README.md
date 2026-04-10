@@ -5,25 +5,21 @@ A document management web application specialized for the **left side (design ph
 ### V-Model Coverage
 
 ```
-Customer / Market Requirements ──────────── Acceptance Test
-  │                                              │
-  ▼                                              │
-Requirements Definition ──────────── System Test
-  │                                        │
-  ▼                                        │
-High-Level Design ────────────── Integration Test
-  │                                  │
-  ▼                                  │
-Detailed Design ──────────── Unit Test
-  │                              │
-  ▼                              │
-Module Design / Impl. Prep       │
-  │                              │
-  ▼                              │
-Implementation ──────────────┘
+Customer / Market Requirements ─ ─ ─ ─ ─ ─ ─ ─ ─ Acceptance Test
+  \                                                            /
+    Requirements Definition ─ ─ ─ ─ ─ ─ ─ ─  System Test
+      \                                                  /
+        High-Level Design ─ ─ ─ ─ ─ ─ ─  Integration Test
+          \                                        /
+            Detailed Design ─ ─ ─ ─ ─  Unit Test
+              \                              /
+                Module Design / Impl.      /
+                  \                      /
+                    Implementation ──┘
 
-◀━━━━━━━━ Coverage of This App ━━━━━━━━▶
-(Left side: Document traceability for the design phase)
+  ◀━━━━━ Coverage of This App ━━━━━▶
+  (Left side: Document traceability
+         for the design phase)
 ```
 
 ## Key Features
@@ -268,25 +264,21 @@ az functionapp keys list --resource-group $rg --name $funcName --query "systemKe
 ### V モデルにおけるカバー範囲
 
 ```
-顧客要求・市場要求 ──────────────────────── 受入テスト
-  │                                          │
-  ▼                                          │
-要件定義 ────────────────────────── システムテスト
-  │                                    │
-  ▼                                    │
-基本設計 ──────────────────── 結合テスト
-  │                              │
-  ▼                              │
-詳細設計 ────────────── 単体テスト
-  │                        │
-  ▼                        │
-モジュール設計・実装準備    │
-  │                        │
-  ▼                        │
-実装 ──────────────────┘
+顧客要求・市場要求 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  受入テスト
+  \                                                    /
+    要件定義 ─ ─ ─ ─ ─ ─ ─ ─ ─  システムテスト
+      \                                          /
+        基本設計 ─ ─ ─ ─ ─ ─ ─ ─  結合テスト
+          \                                /
+            詳細設計 ─ ─ ─ ─ ─  単体テスト
+              \                        /
+                モジュール設計・実装準備
+                  \                /
+                    実装 ──────┘
 
-◀━━━━━━━━━ 本アプリのカバー範囲 ━━━━━━━━━▶
-（左側：設計フェーズのドキュメントトレーサビリティ）
+  ◀━━━━━ 本アプリのカバー範囲 ━━━━━▶
+  （左側：設計フェーズの
+     ドキュメントトレーサビリティ）
 ```
 
 ## 主な機能

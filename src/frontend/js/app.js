@@ -101,33 +101,7 @@ async function handleFileSelect(file) {
 
     try {
         const doc = await api.getDocument(file.docId, selectedChannelId);
-        ui.renderFileDetails(doc, document.getElementById("file-details"));
-
-        // Wire up delete button
-        const btnDelete = document.getElementById("btn-delete-document");
-        if (btnDelete) {
-            btnDelete.addEventListener("click", () => handleDeleteDocument(doc.id, selectedChannelId));
-        }
-
-        // Register callback for lazy-loading enriched relationship data
-        window._loadEnrichedRelationships = async (docId, channelId) => {
-            try {
-                const data = await api.getDocumentRelationships(docId, channelId || selectedChannelId);
-                ui.updateRelationshipsFromApi(data);
-            } catch (err) {
-                console.error("Failed to load enriched relationships:", err);
-            }
-        };
-
-        // Register callback for lazy-loading graph data
-        window._loadGraphData = async (docId, channelId) => {
-            try {
-                const graphData = await api.getChannelGraph(channelId || selectedChannelId);
-                ui.renderGraph(graphData, docId);
-            } catch (err) {
-                console.error("Failed to load graph data:", err);
-            }
-        };
+        wireDocumentDetails(doc);
 
         // If relationship extraction is in progress, start polling
         if (doc.relationshipStatus === "queued" || doc.relationshipStatus === "extracting") {
@@ -136,6 +110,49 @@ async function handleFileSelect(file) {
     } catch (err) {
         ui.showToast(t("loadDetailsFailed"), true);
     }
+}
+
+function wireDocumentDetails(doc) {
+    const detailsEl = document.getElementById("file-details");
+    ui.renderFileDetails(doc, detailsEl);
+
+    // Wire up delete button
+    const btnDelete = document.getElementById("btn-delete-document");
+    if (btnDelete) {
+        btnDelete.addEventListener("click", () => handleDeleteDocument(doc.id, selectedChannelId));
+    }
+
+    // Register callback for lazy-loading enriched relationship data
+    window._loadEnrichedRelationships = async (docId, channelId) => {
+        try {
+            const data = await api.getDocumentRelationships(docId, channelId || selectedChannelId);
+            ui.updateRelationshipsFromApi(data);
+        } catch (err) {
+            console.error("Failed to load enriched relationships:", err);
+        }
+    };
+
+    // Register callback for lazy-loading graph data
+    window._loadGraphData = async (docId, channelId) => {
+        try {
+            const graphData = await api.getChannelGraph(channelId || selectedChannelId);
+            ui.renderGraph(graphData, docId);
+        } catch (err) {
+            console.error("Failed to load graph data:", err);
+        }
+    };
+
+    // Wire up edit answer buttons
+    ui.wireEditAnswerButtons(async (questionId, newAnswer) => {
+        try {
+            await api.updateAnswer(doc.id, questionId, selectedChannelId, newAnswer, currentUserMail);
+            ui.showToast(t("answerUpdateSuccess"));
+            const refreshed = await api.getDocument(doc.id, selectedChannelId);
+            wireDocumentDetails(refreshed);
+        } catch (err) {
+            ui.showToast(t("answerUpdateFailed", { message: err.message }), true);
+        }
+    });
 }
 
 function selectFileByDocId(docId) {
