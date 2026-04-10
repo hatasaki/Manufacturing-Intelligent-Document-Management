@@ -931,6 +931,10 @@ body {
 }
 
 /* Graph Tab */
+.tab-graph {
+    width: 150%;
+}
+
 .graph-filters {
     display: flex;
     align-items: center;
