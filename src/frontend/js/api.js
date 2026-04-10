@@ -111,3 +111,5 @@ export async function deleteDocument(docId, channelId) {
         method: "DELETE",
     });
 }
+
+

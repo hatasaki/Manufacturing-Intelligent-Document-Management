@@ -193,9 +193,19 @@ def _process_document_background(app, doc_id, channel_id, file_content, question
                 return
 
             doc["analysis"] = analysis
+            doc["lang"] = lang
             doc["processingStatus"] = "generating_questions"
             doc["updatedInDbAt"] = datetime.now(timezone.utc).isoformat()
-            cosmos.upsert_document(doc)
+            try:
+                cosmos.upsert_document(doc)
+            except Exception as save_err:
+                # If save fails (e.g. Cosmos DB 2MB limit), truncate text and retry
+                logger.warning("Cosmos save failed for %s, truncating extractedText: %s", doc_id, save_err)
+                text = analysis.get("extractedText", "")
+                if len(text) > 200_000:
+                    analysis["extractedText"] = text[:200_000] + "\n\n[... truncated due to size limit ...]"
+                    doc["analysis"] = analysis
+                    cosmos.upsert_document(doc)
 
         except Exception as e:
             logger.error("Background CU analysis failed for %s: %s", doc_id, e, exc_info=True)

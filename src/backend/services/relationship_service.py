@@ -111,16 +111,42 @@ def _extract_relationships(app, doc_id: str, channel_id: str) -> None:
                 cosmos.upsert_document(doc)
 
 
+def _build_classification_text(analysis: dict) -> str:
+    """Build text for classification from available analysis data."""
+    text = analysis.get("extractedText", "") or ""
+    if text:
+        return text
+
+    # Fallback: construct text from figures, tables, and key-value pairs
+    parts = []
+    for fig in (analysis.get("figures") or []):
+        desc = fig.get("description", "")
+        if desc:
+            parts.append(f"Figure: {desc}")
+    for kvp in (analysis.get("keyValuePairs") or []):
+        k, v = kvp.get("key", ""), kvp.get("value", "")
+        if k or v:
+            parts.append(f"{k}: {v}")
+    for i, tb in enumerate(analysis.get("tables") or []):
+        parts.append(f"Table {i+1}: {tb.get('rowCount', 0)} rows × {tb.get('columnCount', 0)} cols")
+    return "\n".join(parts)
+
+
 def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
     """Inner extraction logic. Exceptions propagate to caller for status update."""
     # Step 1: Classify document (skip if already classified)
     classification = doc.get("documentClassification")
     if not classification:
         analysis = doc.get("analysis")
-        if not analysis or not analysis.get("extractedText"):
+        if not analysis:
+            raise ValueError("No analysis available for classification")
+
+        classification_text = _build_classification_text(analysis)
+        if not classification_text:
             raise ValueError("No analysis text available for classification")
 
-        classification = agent_service.classify_document(analysis["extractedText"])
+        lang = doc.get("lang", "en")
+        classification = agent_service.classify_document(classification_text, lang=lang)
 
         # Save classification
         now = datetime.now(timezone.utc)

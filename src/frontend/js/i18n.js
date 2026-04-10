@@ -58,6 +58,7 @@ const translations = {
         deepAnalysisLabel: "Deep Analysis",
         // Analysis modal
         btnShowAnalysis: "Analysis Results",
+
         analysisModel: "Model",
         analysisAnalyzedAt: "Analyzed At",
         analysisFigures: "Figures",
@@ -181,6 +182,7 @@ const translations = {
         deepAnalysisLabel: "詳細分析",
         // Analysis modal
         btnShowAnalysis: "ファイルの分析結果",
+
         analysisModel: "モデル",
         analysisAnalyzedAt: "分析日時",
         analysisFigures: "図",

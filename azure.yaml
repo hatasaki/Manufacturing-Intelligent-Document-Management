@@ -54,7 +54,7 @@ hooks:
         $cuEndpoint = (azd env get-value AI_FOUNDRY_ENDPOINT)
         $token = (az account get-access-token --resource "https://cognitiveservices.azure.com" --query accessToken -o tsv)
         $cuBodyPath = [System.IO.Path]::GetTempFileName()
-        Set-Content -Path $cuBodyPath -Value '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}' -Encoding utf8NoBOM
+        Set-Content -Path $cuBodyPath -Value '{"modelDeployments":{"gpt-4.1":"gpt-41-mini","gpt-4.1-mini":"gpt-41-mini","gpt-4o":"gpt-41-mini","gpt-4o-mini":"gpt-41-mini","prebuilt-analyzer-completion":"gpt-41-mini","prebuilt-analyzer-completion-mini":"gpt-41-mini","prebuilt-analyzer-embedding":"text-embedding-3-large","text-embedding-3-large":"text-embedding-3-large"}}' -Encoding utf8NoBOM
         $cuUrl = "${cuEndpoint}contentunderstanding/defaults?api-version=2025-11-01"
         az rest --method PATCH --url $cuUrl --headers "Content-Type=application/json" "Authorization=Bearer $token" --body "@$cuBodyPath"
         if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: CU defaults configuration failed" }
@@ -96,7 +96,7 @@ hooks:
         CU_ENDPOINT=$(azd env get-value AI_FOUNDRY_ENDPOINT)
         TOKEN=$(az account get-access-token --resource "https://cognitiveservices.azure.com" --query accessToken -o tsv)
         CU_BODY_FILE=$(mktemp)
-        echo '{"modelDeployments":{"gpt-4.1-mini":"gpt-41-mini","text-embedding-3-large":"text-embedding-3-large"}}' > "$CU_BODY_FILE"
+        echo '{"modelDeployments":{"gpt-4.1":"gpt-41-mini","gpt-4.1-mini":"gpt-41-mini","gpt-4o":"gpt-41-mini","gpt-4o-mini":"gpt-41-mini","prebuilt-analyzer-completion":"gpt-41-mini","prebuilt-analyzer-completion-mini":"gpt-41-mini","prebuilt-analyzer-embedding":"text-embedding-3-large","text-embedding-3-large":"text-embedding-3-large"}}' > "$CU_BODY_FILE"
         az rest --method PATCH --url "${CU_ENDPOINT}contentunderstanding/defaults?api-version=2025-11-01" \
           --headers "Content-Type=application/json" "Authorization=Bearer $TOKEN" --body "@$CU_BODY_FILE" || true
         rm -f "$CU_BODY_FILE"
