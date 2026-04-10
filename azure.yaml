@@ -37,6 +37,18 @@ hooks:
       run: |
         $rgName = (azd env get-value AZURE_RESOURCE_GROUP)
 
+        # 0. Deploy MCP server via management-plane API (avoids blob RBAC requirement)
+        Write-Host "=== Deploying MCP server ==="
+        $mcpFuncName = (azd env get-value MCP_FUNCTION_APP_NAME)
+        $mcpZip = Join-Path $env:TEMP "mcp-server-deploy.zip"
+        if (Test-Path $mcpZip) { Remove-Item $mcpZip }
+        Push-Location src/mcp-server
+        Compress-Archive -Path * -DestinationPath $mcpZip -Force
+        Pop-Location
+        az functionapp deployment source config-zip --resource-group $rgName --name $mcpFuncName --src $mcpZip --build-remote true
+        if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: MCP server deployment failed" } else { Write-Host "=== MCP server deployed ===" }
+        Remove-Item $mcpZip -ErrorAction SilentlyContinue
+
         # 1. Configure Content Understanding default model deployments
         Write-Host "=== Configuring Content Understanding defaults ==="
         $cuEndpoint = (azd env get-value AI_FOUNDRY_ENDPOINT)
@@ -69,6 +81,15 @@ hooks:
       shell: sh
       run: |
         RG_NAME=$(azd env get-value AZURE_RESOURCE_GROUP)
+
+        # 0. Deploy MCP server via management-plane API (avoids blob RBAC requirement)
+        echo "=== Deploying MCP server ==="
+        MCP_FUNC_NAME=$(azd env get-value MCP_FUNCTION_APP_NAME)
+        MCP_ZIP=$(mktemp /tmp/mcp-server-deploy-XXXXXX.zip)
+        (cd src/mcp-server && zip -r "$MCP_ZIP" .)
+        az functionapp deployment source config-zip --resource-group "$RG_NAME" --name "$MCP_FUNC_NAME" --src "$MCP_ZIP" --build-remote true || echo "WARNING: MCP server deployment failed"
+        rm -f "$MCP_ZIP"
+        echo "=== MCP server deployed ==="
 
         # 1. Configure Content Understanding default model deployments
         echo "=== Configuring Content Understanding defaults ==="
@@ -121,7 +142,5 @@ services:
             cp -r ../frontend static
             sed -i "s/__ENTRA_CLIENT_ID__/$CLIENT_ID/g" static/js/config.js
             sed -i "s/__ENTRA_TENANT_ID__/$TENANT_ID/g" static/js/config.js
-  mcp-server:
-    project: ./src/mcp-server
-    host: function
-    language: python
+  # mcp-server is deployed via postdeploy hook using az functionapp deployment source config-zip
+  # (management-plane API) to avoid requiring Storage Blob Data Contributor for the deployer.

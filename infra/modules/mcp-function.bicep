@@ -99,11 +99,12 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
 }
 
 // ─── Role Assignments ────────────────────────────────────────────
+// GUID seed uses 'fc-' prefix to avoid collision with stale assignments from previous plan SKU changes.
 
 // Storage Blob Data Owner for AzureWebJobsStorage + deployment
 resource storageBlobDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storageAccount
-  name: guid(storageAccount.id, functionApp.id, 'StorageBlobDataOwner')
+  name: guid(storageAccount.id, functionApp.id, 'fc-StorageBlobDataOwner')
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -117,7 +118,7 @@ resource storageBlobDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-0
 // Storage Queue Data Contributor (MCP extension transport)
 resource storageQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storageAccount
-  name: guid(storageAccount.id, functionApp.id, 'StorageQueueDataContributor')
+  name: guid(storageAccount.id, functionApp.id, 'fc-StorageQueueDataContributor')
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -131,7 +132,7 @@ resource storageQueueContributor 'Microsoft.Authorization/roleAssignments@2022-0
 // Storage Queue Data Message Processor (MCP extension transport)
 resource storageQueueProcessor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storageAccount
-  name: guid(storageAccount.id, functionApp.id, 'StorageQueueDataMessageProcessor')
+  name: guid(storageAccount.id, functionApp.id, 'fc-StorageQueueDataMessageProcessor')
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
@@ -145,7 +146,7 @@ resource storageQueueProcessor 'Microsoft.Authorization/roleAssignments@2022-04-
 // Storage Table Data Contributor (Functions runtime)
 resource storageTableContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: storageAccount
-  name: guid(storageAccount.id, functionApp.id, 'StorageTableDataContributor')
+  name: guid(storageAccount.id, functionApp.id, 'fc-StorageTableDataContributor')
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',

@@ -775,11 +775,22 @@ export function renderGraph(data, currentDocId) {
                 const bulge = 80;
                 path = `M${x1},${y1} C${x1 + bulge},${y1} ${x2 + bulge},${y2} ${x2},${y2}`;
             } else {
-                // Different columns: smooth curve from right edge to left edge
-                const x1 = fromN.x + NODE_W;
-                const y1 = fromN.y + NODE_H / 2;
-                const x2 = toN.x;
-                const y2 = toN.y + NODE_H / 2;
+                // Different columns: pick sides so arrowhead stays outside the target node
+                const forward = toN.x > fromN.x;
+                let x1, y1, x2, y2;
+                if (forward) {
+                    // Forward: right edge of source → left edge of target
+                    x1 = fromN.x + NODE_W;
+                    y1 = fromN.y + NODE_H / 2;
+                    x2 = toN.x;
+                    y2 = toN.y + NODE_H / 2;
+                } else {
+                    // Backward: left edge of source → right edge of target
+                    x1 = fromN.x;
+                    y1 = fromN.y + NODE_H / 2;
+                    x2 = toN.x + NODE_W;
+                    y2 = toN.y + NODE_H / 2;
+                }
                 const midX = (x1 + x2) / 2;
                 path = `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`;
             }
