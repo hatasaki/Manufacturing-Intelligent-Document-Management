@@ -243,7 +243,7 @@ azd up
 
 ```
 https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/General?groupId=...
-                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^^^^^^^^^^^^
                                      This is the channel ID (URL-encoded)
 ```
 
@@ -538,7 +538,7 @@ azd up
 
 ```
 https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/General?groupId=...
-                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                      ^^^^^^^^^^^^^^^^^^^^^^^
                                      これがチャネル ID（URL エンコード済み）
 ```
 
