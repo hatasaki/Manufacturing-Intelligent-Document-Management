@@ -85,13 +85,30 @@ Classify the document into exactly ONE of these 6 engineering process stages:
 
 Extract the following from the document:
 - title: Document title as stated or inferred
-- summary: 3-5 line summary of the document's purpose and content
+- summary: A detailed summary (5-10 lines) that MUST include ALL of the following
+  relationship-critical information found in the document:
+  * Purpose and scope of the document
+  * Specific function names, signal names, API names, and interface names
+  * Component names, part numbers, and hardware/software module identifiers
+  * Referenced standards, regulations, and compliance requirements
+  * Input/output specifications, parameters, and their value ranges
+  * Key design decisions, constraints, and assumptions
+  * Test conditions, acceptance criteria, and verification methods
+  * Any upstream deliverables this document is based on
+  * Any downstream deliverables this document feeds into
+  The summary serves as the primary input for downstream dependency analysis between
+  documents. Missing keywords here will cause relationship detection failures.
 - documentNumber: Official document number/ID if present (null if not found)
 - referencedIds: ALL IDs, numbers, document references found in the text
   (requirement IDs, function IDs, signal IDs, drawing numbers, standard numbers, etc.)
 - subsystem: Primary subsystem name (null if not determinable)
 - moduleName: Primary module name (null if not determinable)
 - productFamily: Product family or model name (null if not determinable)
+- keyTerms: An array of unique technical keywords and domain-specific terms extracted
+  from the document that are critical for identifying relationships with other documents.
+  Include: function names, signal names, component names, parameter names, protocol names,
+  standard references, test method names, and any specialized manufacturing terminology.
+  Extract at least 10 terms when available. Do NOT include generic words.
 
 Output format: Return ONLY a JSON object with the fields above plus "stage".
 No additional text or explanation."""
@@ -136,7 +153,19 @@ Confidence levels:
   documentNumber appears in target's referencedIds. This is the strongest evidence.
 - medium: Subsystem/module names match AND the documents are in adjacent process stages.
   Indicates likely dependency but not explicitly documented.
+  Also medium when keyTerms overlap significantly (3+ shared technical terms) between
+  documents in adjacent stages, even if subsystem/module names differ.
 - low: Only title/summary similarity suggests a relationship. Use sparingly.
+
+Analyzing relationships — use ALL available metadata fields:
+- referencedIds: Check for direct ID cross-references (strongest signal)
+- keyTerms: Compare technical keywords between source and candidates. Overlapping
+  function names, signal names, component names, or parameter names strongly indicate
+  a dependency even when no explicit document ID reference exists.
+- summary: Look for shared technical concepts, specifications, and scope overlap.
+  The summary contains detailed technical content including specific function names,
+  signal names, interfaces, and design decisions — use these for matching.
+- subsystem / moduleName / productFamily: Matching values reinforce relationship likelihood.
 
 Rules:
 - Only report relationships you are confident about

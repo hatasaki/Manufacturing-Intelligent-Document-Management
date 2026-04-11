@@ -44,3 +44,6 @@ node_modules/
 app-logs/
 app-logs.zip
 build-log.zip
+
+#sample
+./samples

@@ -181,6 +181,7 @@ def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
             "subsystem": classification.get("subsystem"),
             "moduleName": classification.get("moduleName"),
             "productFamily": classification.get("productFamily"),
+            "keyTerms": classification.get("keyTerms", []),
         }
         candidate_metas = []
         for c in agent_candidates:
@@ -195,6 +196,7 @@ def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
                 "subsystem": c_cls.get("subsystem"),
                 "moduleName": c_cls.get("moduleName"),
                 "productFamily": c_cls.get("productFamily"),
+                "keyTerms": c_cls.get("keyTerms", []),
             })
 
         agent_results = agent_service.analyze_document_relationships(
