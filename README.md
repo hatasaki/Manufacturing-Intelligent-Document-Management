@@ -230,6 +230,25 @@ python app.py
 
 This application includes an MCP (Model Context Protocol) server deployed as an Azure Functions Flex Consumption app. It provides semantic document search and retrieval tools that can be used by MCP-compatible clients such as GitHub Copilot in VS Code.
 
+### Set Channel ID
+
+The MCP server requires a Teams channel ID to scope document searches. Set it before deployment:
+
+```bash
+azd env set TEAMS_CHANNEL_ID <channel-id>
+azd up
+```
+
+**Easiest way to get the channel ID:** Open the target channel in Microsoft Teams (browser or desktop app), copy the URL, and extract the `channel` parameter. For example:
+
+```
+https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/General?groupId=...
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                     This is the channel ID (URL-encoded)
+```
+
+Copy the value between `/channel/` and the next `/` (e.g. `19%3A...%40thread.tacv2`). You can paste the URL-encoded value as-is — the server will decode it automatically.
+
 ### Get Connection Info
 
 ```bash
@@ -505,6 +524,25 @@ python app.py
 ## MCP サーバーの利用方法
 
 本アプリケーションには、Azure Functions Flex Consumption プランでデプロイされる MCP（Model Context Protocol）サーバーが含まれています。VS Code の GitHub Copilot などの MCP 対応クライアントから、ドキュメントのセマンティック検索・取得が可能です。
+
+### チャネル ID の設定
+
+MCP サーバーはドキュメント検索のスコープとして Teams チャネル ID が必要です。デプロイ前に設定してください:
+
+```bash
+azd env set TEAMS_CHANNEL_ID <チャネル ID>
+azd up
+```
+
+**チャネル ID の最も簡単な取得方法:** Microsoft Teams（ブラウザまたはデスクトップアプリ）で対象チャネルを開き、URL をコピーして `channel` パラメータを抽出します。例:
+
+```
+https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/General?groupId=...
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                     これがチャネル ID（URL エンコード済み）
+```
+
+`/channel/` と次の `/` の間の値（例: `19%3A...%40thread.tacv2`）をコピーしてください。URL エンコードされたままの値をそのまま使用できます — サーバー側で自動的にデコードされます。
 
 ### 接続情報の取得
 
