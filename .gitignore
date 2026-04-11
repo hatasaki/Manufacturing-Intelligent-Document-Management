@@ -42,3 +42,5 @@ node_modules/
 
 # App logs (Azure deployment logs)
 app-logs/
+app-logs.zip
+build-log.zip
