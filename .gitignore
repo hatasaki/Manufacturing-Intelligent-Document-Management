@@ -39,3 +39,6 @@ src/backend/static/
 
 # Node
 node_modules/
+
+# App logs (Azure deployment logs)
+app-logs/
