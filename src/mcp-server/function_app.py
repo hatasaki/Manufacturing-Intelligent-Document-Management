@@ -193,19 +193,22 @@ def get_related_documents(document_id: str) -> str:
         confidence = rel.get("confidence", "")
         reason = rel.get("reason", "")
 
-        # Resolve target document's fileName
+        # Resolve target document's fileName and webUrl
         target_file_name = ""
+        target_web_url = ""
         try:
             target_doc = container.read_item(
                 item=target_id, partition_key=CHANNEL_ID
             )
             target_file_name = target_doc.get("fileName", "")
+            target_web_url = target_doc.get("webUrl", "")
         except Exception:
             pass
 
         entry = {
             "documentId": target_id,
             "fileName": target_file_name,
+            "webUrl": target_web_url,
             "relationshipType": rel_type,
             "confidence": confidence,
             "reason": reason,
@@ -221,6 +224,7 @@ def get_related_documents(document_id: str) -> str:
     result = {
         "documentId": doc["id"],
         "fileName": doc.get("fileName", ""),
+        "webUrl": doc.get("webUrl", ""),
         "channelId": doc.get("channelId", ""),
         "upstream": upstream,
         "downstream": downstream,
