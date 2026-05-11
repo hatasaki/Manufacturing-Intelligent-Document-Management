@@ -22,6 +22,16 @@ ADJACENT_STAGES = {
     "implementation": {"upstream": ["module_design"]},
 }
 
+# Stage order: lower index = more upstream
+STAGE_ORDER = {
+    "customer_requirements": 0,
+    "requirements_definition": 1,
+    "basic_design": 2,
+    "detailed_design": 3,
+    "module_design": 4,
+    "implementation": 5,
+}
+
 # Reverse relationship mapping for bidirectional save
 REVERSE_RELATIONSHIP = {
     "depends_on": "depended_by",
@@ -29,6 +39,33 @@ REVERSE_RELATIONSHIP = {
     "refers_to": "referred_by",
     "referred_by": "refers_to",
 }
+
+
+def _resolve_dependency_direction(source_stage: str, target_stage: str) -> str | None:
+    """Decide dependency direction deterministically from stage order.
+
+    Returns:
+        "depends_on": source is downstream of target (source depends on upstream target)
+        "depended_by": source is upstream of target (target depends on source)
+        None: same stage or unknown stage — relationship should be skipped
+    """
+    s = STAGE_ORDER.get(source_stage)
+    t = STAGE_ORDER.get(target_stage)
+    if s is None or t is None:
+        return None
+    if s > t:
+        return "depends_on"
+    if s < t:
+        return "depended_by"
+    return None
+
+
+# Confidence ladder for downgrade when stage classification is uncertain
+_CONFIDENCE_DOWNGRADE = {"high": "medium", "medium": "low", "low": "low"}
+
+
+def _downgrade_confidence(conf: str) -> str:
+    return _CONFIDENCE_DOWNGRADE.get(conf, "low")
 
 
 def init_worker(app):
@@ -148,6 +185,26 @@ def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
         lang = doc.get("lang", "en")
         classification = agent_service.classify_document(classification_text, lang=lang)
 
+        # Validate stage value (defense against malformed LLM output).
+        # Note: this only catches schema violations, not semantic misclassification.
+        if classification.get("stage") not in STAGE_ORDER:
+            raise ValueError(
+                f"Invalid stage value from classifier: {classification.get('stage')!r}"
+            )
+
+        # Sanity check: customer_requirements documents typically have very few
+        # referenced internal IDs. A high count suggests misclassification.
+        if (
+            classification.get("stage") == "customer_requirements"
+            and len(classification.get("referencedIds") or []) >= 5
+        ):
+            logger.warning(
+                "Doc %s classified as customer_requirements but has %d referencedIds; "
+                "downgrading stageConfidence to low",
+                doc_id, len(classification.get("referencedIds") or []),
+            )
+            classification["stageConfidence"] = "low"
+
         # Save classification
         now = datetime.now(timezone.utc)
         classification["classifiedAt"] = now.isoformat()
@@ -202,11 +259,63 @@ def _do_extraction(cosmos, doc: dict, doc_id: str, channel_id: str) -> None:
         agent_results = agent_service.analyze_document_relationships(
             source_meta, candidate_metas
         )
+        # Build target_id -> stage map for direction resolution
+        candidate_stage_map = {
+            c["id"]: c.get("documentClassification", {}).get("stage", "")
+            for c in agent_candidates
+        }
+        candidate_stage_conf_map = {
+            c["id"]: c.get("documentClassification", {}).get("stageConfidence", "high")
+            for c in agent_candidates
+        }
+        source_stage = classification.get("stage", "")
+        source_stage_conf = classification.get("stageConfidence", "high")
         for rel in agent_results:
+            target_id = rel.get("targetDocId", "")
+            if not target_id:
+                continue
+
+            # Backward compatibility: accept either new {hasDependency: bool}
+            # schema or legacy {relationshipType: "depends_on"|"depended_by"} schema.
+            has_dep = rel.get("hasDependency")
+            if has_dep is None:
+                # Legacy: treat presence of a depends_on/depended_by type as truthy
+                legacy_type = rel.get("relationshipType", "")
+                has_dep = legacy_type in ("depends_on", "depended_by")
+            if not has_dep:
+                continue
+
+            # Direction is decided by stage order, NOT by the LLM.
+            target_stage = candidate_stage_map.get(target_id, "")
+            direction = _resolve_dependency_direction(source_stage, target_stage)
+            if direction is None:
+                # Same stage or unknown stage — skip (no deterministic direction).
+                logger.info(
+                    "Skipping dependency to %s: source_stage=%s target_stage=%s "
+                    "(same or unknown stage)",
+                    target_id, source_stage, target_stage,
+                )
+                continue
+
+            llm_type = rel.get("relationshipType")
+            if llm_type and llm_type != direction:
+                logger.warning(
+                    "LLM returned relationshipType=%s for %s->%s but stage order "
+                    "(%s -> %s) requires %s. Overriding.",
+                    llm_type, doc_id, target_id, source_stage, target_stage, direction,
+                )
+
+            # Downgrade confidence if either document's stage classification
+            # is uncertain — direction itself is only as trustworthy as the stages.
+            confidence = rel.get("confidence", "low")
+            target_stage_conf = candidate_stage_conf_map.get(target_id, "high")
+            if source_stage_conf == "low" or target_stage_conf == "low":
+                confidence = _downgrade_confidence(confidence)
+
             all_relationships.append({
-                "targetDocId": rel.get("targetDocId", ""),
-                "relationshipType": rel.get("relationshipType", ""),
-                "confidence": rel.get("confidence", "low"),
+                "targetDocId": target_id,
+                "relationshipType": direction,
+                "confidence": confidence,
                 "reason": rel.get("reason", ""),
             })
 
@@ -299,9 +408,11 @@ def find_candidates(doc_id: str, classification: dict, all_docs: list) -> tuple:
         d_doc_number = d_cls.get("documentNumber")
         d_referenced_ids = set(d_cls.get("referencedIds", []))
 
-        # Check if this doc is a candidate for agent-based analysis
-        # (adjacent stage for derived_from/decomposed_to, or same stage for reused_from)
-        if d_stage in adjacent_stages or d_stage == stage:
+        # Agent candidates are limited to adjacent stages only.
+        # Same-stage documents are excluded because the deterministic direction
+        # rule cannot decide a direction between same-stage docs (would be skipped
+        # at save time anyway, so don't waste agent calls).
+        if d_stage in adjacent_stages:
             agent_candidates.append(d)
 
         # Programmatic references check: does source reference target's documentNumber?

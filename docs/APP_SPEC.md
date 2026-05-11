@@ -382,7 +382,14 @@
 
   // === 文書関係抽出 (詳細は RELATIONSHIP_SPEC.md 参照) ===
   "documentClassification": null,    // 文書分類結果 (object | null)
+                                     // 主要フィールド: stage, stageReasoning, stageConfidence,
+                                     // title, summary, documentNumber, referencedIds, subsystem,
+                                     // moduleName, productFamily, keyTerms, classifiedAt
   "relationships": [],               // 抽出された関係リスト
+                                     // 各要素: { targetDocId, relationshipType, confidence,
+                                     // reason, extractedAt }
+                                     // relationshipType ∈ {depends_on, depended_by, refers_to,
+                                     // referred_by} — 方向は backend が STAGE_ORDER から決定
   "relationshipStatus": null,        // "queued" | "extracting" | "completed" | "error"
   "relationshipError": null,         // 関係抽出エラー詳細
 
@@ -434,7 +441,7 @@
 | gpt-4.1-mini デプロイメント | ai-foundry.bicep | デプロイメント名 `gpt-41-mini`, GlobalStandard, capacity 100 |
 | text-embedding-3-large デプロイメント | ai-foundry.bicep | GlobalStandard, capacity 100 |
 | App Service Plan | app-service-plan.bicep | Linux, B1 SKU |
-| App Service | app-service.bicep | Python 3.10, SystemAssigned Identity, SCM/FTP Basic Auth 無効 |
+| App Service | app-service.bicep | Python 3.13, SystemAssigned Identity, SCM/FTP Basic Auth 無効 |
 | Cosmos DB RBAC | cosmos-role-assignment.bicep | Data Contributor + DocumentDB Account Contributor |
 | AI Foundry RBAC | ai-foundry-role-assignment.bicep | Cognitive Services User |\n| MCP Function App | mcp-function.bicep | Azure Functions Flex Consumption, Python 3.10 |\n| MCP Storage | mcp-storage.bicep | MCP Function App 用ストレージアカウント |\n| MCP Application Insights | mcp-app-insights.bicep | MCP Function App 用監視 |
 
@@ -465,7 +472,7 @@
   - Managed Identity (RBAC) ベースの全 Azure サービス認証
   - HTTPS Only, TLS 1.2 最小バージョン
 - **デプロイ**: `azd up` 一発デプロイ (Entra ID アプリ登録のみ事前手動設定)
-- **ランタイム**: Python 3.10 (App Service Linux, Oryx ビルド)
+- **ランタイム**: Python 3.13 (App Service Linux, Oryx ビルド)
 - **起動タイムアウト**: `WEBSITES_CONTAINER_START_TIME_LIMIT=600` (10 分)
 
 ## エラーハンドリング
@@ -493,5 +500,5 @@
 ## コーディング規約
 
 - フロントエンド: JavaScript (ES Modules)
-- バックエンド: Python 3.10+ / Flask
+- バックエンド: Python 3.13+ / Flask
 - コミットメッセージ: Conventional Commits

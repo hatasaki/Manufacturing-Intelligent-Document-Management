@@ -59,7 +59,8 @@ sequenceDiagram
     
     alt エージェント候補あり
         Worker->>Analyzer: analyze_document_relationships(source, candidates)
-        Analyzer-->>Worker: [{targetDocId, relationshipType, confidence, reason}, ...]
+        Analyzer-->>Worker: [{targetDocId, hasDependency, confidence, reason}, ...]
+        Worker->>Worker: stage 順で relationshipType を決定
     end
     
     Worker->>Cosmos: relationships 保存 (ソースドキュメント)
@@ -193,10 +194,15 @@ flowchart LR
 
 - **方向**: 当該文書（下流） → 対象文書（上流）
 - **逆方向**: 対象文書側には `depended_by` として保存
-- **判定方法**: AI エージェント (`relationship-analyzer-agent`)
+- **依存有無の判定方法**: AI エージェント (`relationship-analyzer-agent`)
+- **方向（向き）の判定方法**: バックエンドコードで stage 順から決定論的に決定（LLM の判定には依存しない）
+  - `STAGE_ORDER` (`customer_requirements`=0 → `implementation`=5) で source/target の stage index を比較
+  - source の方が後段（index が大きい）→ `depends_on`
+  - source の方が前段（index が小さい）→ `depended_by`
+  - 同一 stage → 関係を保存しない（決定論的方向が定まらないため）
 - **判定条件** (confidence 基準):
   - **high**: 対象文書の ID・文書番号が当該文書の `referencedIds` に含まれている（明示的な依存関係）
-  - **medium**: サブシステム名・モジュール名が一致かつ隣接工程、または `keyTerms` が 3 件以上重複かつ隣接工程
+  - **medium**: サブシステム名・モジュール名が一致、または `keyTerms` が 3 件以上重複し技術的スコープが共有されている
   - **low**: タイトル・要約の類似性のみから推定（弱い依存関係の可能性）
 - **包含範囲**: 旧 `derived_from` (上流からの派生)、`decomposed_to` の逆方向 (上流の一部を詳細化)、`reused_from` (過去版の再利用) をすべて `depends_on` に統合
 
@@ -228,12 +234,19 @@ flowchart LR
     end
 
     subgraph AIエージェント<br/>relationship-analyzer-agent
-        A1["メタデータ比較<br/>ステージ隣接性<br/>サブシステム/モジュール一致<br/>keyTerms 重複<br/>サマリ類似性"]
-        A1 --> A2["depends_on / depended_by<br/>confidence: high/medium/low"]
+        A1["メタデータ比較<br/>referencedIds<br/>keyTerms 重複<br/>summary 類似性<br/>subsystem/module 一致"]
+        A1 --> A2["hasDependency: true/false<br/>confidence: high/medium/low"]
+    end
+
+    subgraph バックエンド<br/>_resolve_dependency_direction
+        D1["source.stage と<br/>target.stage を STAGE_ORDER で比較"]
+        D1 --> D2["depends_on / depended_by を決定<br/>(同一 stage は破棄)"]
     end
 
     P2 --> MERGE["all_relationships に統合"]
     A2 --> MERGE
+    A2 --> D1
+    D2 --> MERGE
 
     style プログラム的マッチング fill:#e8f5e9
     style AIエージェント fill:#e3f2fd
@@ -257,68 +270,49 @@ flowchart LR
 
 #### 役割
 
-ドキュメントの Content Understanding 分析テキスト全文を受け取り、製造プロセスにおけるステージ分類と構造化メタデータの抽出を行う。抽出した `summary` と `keyTerms` は下流の `relationship-analyzer-agent` の主要入力となる。
+ドキュメントの Content Understanding 分析テキスト全文を受け取り、製造プロセスにおけるステージ分類と構造化メタデータの抽出を行う。抽出した `summary` と `keyTerms` は下流の `relationship-analyzer-agent` の主要入力となる。**`stage` の値は依存関係の方向決定に直接使われるため、判定精度が重要**であり、プロンプトには各ステージの境界判定ルール・自己整合性チェック・判定根拠 (`stageReasoning`) と自己 confidence (`stageConfidence`) の出力が含まれる。
 
 #### システムプロンプト全文
 
 > **ソース**: `scripts/create_agents.py` — `DOC_CLASSIFIER_INSTRUCTIONS`
 
-```text
-You are a manufacturing document classification specialist.
-Analyze the provided document text and extract structured metadata.
+プロンプトは以下のセクションで構成される（全文は `scripts/create_agents.py` を参照）:
 
-Classify the document into exactly ONE of these 6 engineering process stages:
-- customer_requirements: Customer/market requirements, requirement lists, KPI definitions
-- requirements_definition: System requirements, functional/non-functional requirements
-- basic_design: Architecture design, functional allocation, system configuration
-- detailed_design: Detailed design, signal lists, API specifications, sequence diagrams
-- module_design: Module design, coding specifications, AUTOSAR configuration, IF specifications
-- implementation: Source code, configuration files, parameter files, test code
-
-Extract the following from the document:
-- title: Document title as stated or inferred
-- summary: A detailed summary (5-10 lines) that MUST include ALL of the following
-  relationship-critical information found in the document:
-  * Purpose and scope of the document
-  * Specific function names, signal names, API names, and interface names
-  * Component names, part numbers, and hardware/software module identifiers
-  * Referenced standards, regulations, and compliance requirements
-  * Input/output specifications, parameters, and their value ranges
-  * Key design decisions, constraints, and assumptions
-  * Test conditions, acceptance criteria, and verification methods
-  * Any upstream deliverables this document is based on
-  * Any downstream deliverables this document feeds into
-  The summary serves as the primary input for downstream dependency analysis between
-  documents. Missing keywords here will cause relationship detection failures.
-- documentNumber: Official document number/ID if present (null if not found)
-- referencedIds: ALL IDs, numbers, document references found in the text
-  (requirement IDs, function IDs, signal IDs, drawing numbers, standard numbers, etc.)
-- subsystem: Primary subsystem name (null if not determinable)
-- moduleName: Primary module name (null if not determinable)
-- productFamily: Product family or model name (null if not determinable)
-- keyTerms: An array of unique technical keywords and domain-specific terms extracted
-  from the document that are critical for identifying relationships with other documents.
-  Include: function names, signal names, component names, parameter names, protocol names,
-  standard references, test method names, and any specialized manufacturing terminology.
-  Extract at least 10 terms when available. Do NOT include generic words.
-
-Output format: Return ONLY a JSON object with the fields above plus "stage".
-No additional text or explanation.
-```
+1. **Stage classification (CRITICAL)** — 6 ステージの定義。各ステージに `INCLUDES`（含まれる成果物）、`EXCLUDES`（含まれない・他ステージに属するもの）、典型的な日本語/英語タイトル例を明示
+2. **Stage selection rules (apply IN ORDER)** — 複数ステージに跨る文書のための優先ルール:
+   - **Rule A — DOMINANT CONTENT WINS**: タイトルではなく実際の技術内容の過半（>50%）を占めるステージを採用
+   - **Rule B — DELIVERABLE TYPE WINS OVER TITLE**: 信号一覧・コード・シーケンス図等の実成果物タイプを優先
+   - **Rule C — UPSTREAM DEFAULT FOR AMBIGUITY**: 隣接 2 ステージで甲乙つけがたい場合は **より上流** を選択（過剰な depends_on 生成を回避）
+   - **Rule D — REFERENCE DENSITY CHECK**: `customer_requirements` 候補で内部参照 ID が多数ある場合は再考（最上流文書は内部参照が少ないはず）
+3. **Self-consistency check (MANDATORY)** — 選択した stage と実際の成果物タイプ・参照密度が矛盾する場合は `stageConfidence` を下げる
+4. **Other extraction fields** — `summary`, `keyTerms` 等の抽出指示
+5. **Output format** — JSON のみ返却
 
 #### 抽出フィールド
 
 | フィールド | 型 | 説明 |
 |-----------|-----|------|
-| `stage` | string | 6段階の工程ステージのいずれか（必須） |
+| `stage` | string | 6 段階の工程ステージのいずれか（必須）。**依存方向決定の根拠** |
+| `stageReasoning` | string | stage を選択した根拠（1〜3 文）。実成果物タイプ・支配的内容・参照密度等の証拠を引用すること（必須） |
+| `stageConfidence` | string | `high` / `medium` / `low`。Self-consistency check 後の自己評価 |
 | `title` | string | ドキュメントのタイトル（明記または推定） |
-| `summary` | string | 5〜10行の詳細な概要。関数名・信号名・API名・コンポーネント名・規格参照・入出力仕様・設計判断・テスト条件・上流/下流成果物の情報をすべて含む。**関係分析の主要入力となるため、技術キーワードの欠落は関係検出失敗に直結する** |
-| `documentNumber` | string / null | 文書番号（例: `BD-ECU-001`）。見つからなければ null |
-| `referencedIds` | string[] | テキスト中に出現するすべてのID・番号・参照（要件ID, 信号ID, 図面番号, 規格番号 等） |
+| `summary` | string | 5〜10 行の詳細な概要。関数名・信号名・API 名・コンポーネント名・規格参照・入出力仕様・設計判断・テスト条件・上流/下流成果物の情報をすべて含む |
+| `documentNumber` | string / null | 文書番号（例: `BD-ECU-001`） |
+| `referencedIds` | string[] | テキスト中に出現するすべての ID・番号・参照 |
 | `subsystem` | string / null | 主要サブシステム名 |
 | `moduleName` | string / null | 主要モジュール名 |
 | `productFamily` | string / null | 製品ファミリー・型番名 |
-| `keyTerms` | string[] | 関係分析に重要な技術キーワードの配列。関数名・信号名・コンポーネント名・パラメータ名・プロトコル名・規格参照・テスト手法名・専門用語。10件以上抽出。汎用語は除外 |
+| `keyTerms` | string[] | 関係分析に重要な技術キーワード（10 件以上、汎用語除外） |
+
+#### バックエンド側の検証・処理
+
+`relationship_service._do_extraction()` は分類結果に対して以下を実施:
+
+1. **スキーマ検証**: `stage` が `STAGE_ORDER` の 6 値以外なら関係抽出を中止し `relationshipError` に記録
+2. **参照密度サニティチェック**: `stage == "customer_requirements"` かつ `referencedIds` が 5 件以上なら `stageConfidence` を `low` に強制格下げ（warning ログ出力）
+3. **下流 confidence 格下げ**: source または target の `stageConfidence == "low"` の場合、その依存関係の `confidence` を一段階下げる（high→medium、medium→low）。stage 分類が不確実な場合、その分類に基づく方向判定も同程度しか信頼できないため
+
+> **注意**: バックエンドは「真の意味的誤分類」（6 値のうち間違ったものを返したケース）を自動検出することは**できない**。検出可能なのはスキーマ違反と明白な参照密度矛盾のみ。最終的な精度は LLM のプロンプト遵守に依存する。
 
 #### 呼出しフロー
 
@@ -354,7 +348,9 @@ sequenceDiagram
     OAI-->>AS: output_text
     AS->>AS: Markdown コードフェンス除去
     AS->>AS: json.loads でパース
-    AS-->>RS: dict: {stage, title, summary, documentNumber, referencedIds, keyTerms, ...}
+    AS-->>RS: dict: {stage, stageReasoning, stageConfidence, title, summary, ...}
+
+    Note over RS: スキーマ検証 + サニティチェック<br/>(参照密度・stage 値)
 ```
 
 #### 入出力例
@@ -378,6 +374,8 @@ flowchart TD
 ```json
 {
   "stage": "basic_design",
+  "stageReasoning": "Document title is 'ECU Motor Control Basic Design Specification' and >50% of content describes system architecture (PWM motor drive scheme, current feedback loop, CAN/SPI interfaces) without signal-level data type definitions or sequence diagrams. Reference density is moderate (3 IDs, all upstream requirement references), consistent with basic_design.",
+  "stageConfidence": "high",
   "title": "ECU Motor Control Basic Design Specification",
   "summary": "ECUモーター制御の基本設計仕様書。システム要件REQ-101/REQ-102に基づき、モーター制御ECUのアーキテクチャを定義。PWM制御方式によるモーター駆動、電流フィードバックループ、過電流保護機能を含む。CANバス経由のトルク指令受信インターフェース、SPI経由のロータリーエンコーダ入力。動作温度範囲-40℃～125℃、電源電圧3.3V/5V。下流の詳細設計・モジュール設計への入力となる。",
   "documentNumber": "BD-MCU-001",
@@ -395,9 +393,9 @@ flowchart TD
 
 #### 役割
 
-ソースドキュメントと候補ドキュメント群の **分類メタデータ** (doc-classifier-agent が生成した summary, keyTerms, referencedIds 等) を比較し、上流/下流の依存関係を推論する。**変更影響分析** を目的としている:
-- 上流ドキュメントが変更されたとき、どの下流ドキュメントに影響があるか
-- 下流ドキュメントをレビューするとき、どの上流ドキュメントに依存しているか
+ソースドキュメントと候補ドキュメント群の **分類メタデータ** (doc-classifier-agent が生成した summary, keyTerms, referencedIds 等) を比較し、**依存関係の有無と信頼度のみ** を判定する。**方向（depends_on / depended_by）は判定しない** — 方向は呼び出し側のバックエンドコードが `STAGE_ORDER` から決定論的に決定する。これは LLM のプロンプト遵守ミスによる方向逆転を防ぐためである。
+
+`stage` フィールドはコンテキストとして渡されるが、エージェントはこれを「依存の強さ（confidence）の参考」としてのみ用いるべきで、方向判定には使わない。
 
 #### システムプロンプト全文
 
@@ -405,90 +403,77 @@ flowchart TD
 
 ```text
 You are a manufacturing document dependency analyst.
-Your task is to determine upstream/downstream dependency relationships between documents
-in a manufacturing engineering process. This is used for change impact analysis:
-- When an upstream document changes, which downstream documents are affected?
-- When reviewing a downstream document, which upstream documents does it depend on?
+Your task is to determine WHETHER a content dependency exists between a source document
+and each candidate document in a manufacturing engineering process. This is used for
+change impact analysis: when a document changes, which other documents need review?
 
-Given a source document's metadata and a list of candidate documents, determine
-dependency relationships.
+You DO NOT determine the direction (which one is upstream vs downstream).
+The direction is decided deterministically by the caller based on each document's
+process stage. Focus purely on whether shared content creates a dependency.
 
-Relationship types (use ONLY these 2):
+Given a source document's metadata and a list of candidate documents, return for each
+candidate whether a dependency exists, your confidence, and a clear reason explaining
+what specific shared content creates the dependency.
 
-1. depends_on: The SOURCE document's content depends on (is derived from, is a breakdown of,
-   or reuses content from) the TARGET document. The TARGET is an upstream document.
-   Use this when:
-   - Source is in a later process stage and was created based on the target
-   - Source breaks down or implements part of the target's scope
-   - Source reuses content from an older version of a similar document
-   - Source's content would need updating if the target changes
-
-2. depended_by: The TARGET document's content depends on the SOURCE document.
-   The SOURCE is an upstream document.
-   Use this when:
-   - Target is in a later process stage and was created based on the source
-   - Target breaks down or implements part of the source's scope
-   - Target's content would need updating if the source changes
-
-Determining dependency direction:
-- The process stages from upstream to downstream are:
-  customer_requirements → requirements_definition → basic_design → detailed_design → module_design → implementation
-- A document in a LATER stage depends_on a document in an EARLIER stage (not vice versa)
-- For same-stage documents (reuse cases): the NEWER document depends_on the OLDER one
-- If unsure about direction, consider: "If document A changes, would document B need updating?"
-  If yes, B depends_on A.
+The 'stage' field is provided for context only (it may help judge confidence — e.g.,
+distant stages weaken the prior probability of direct dependency). Do NOT use 'stage'
+to decide direction; only use it as a soft signal for dependency strength.
 
 Confidence levels:
-- high: Document IDs from the target appear in the source's referencedIds, OR source's
-  documentNumber appears in target's referencedIds. This is the strongest evidence.
-- medium: Subsystem/module names match AND the documents are in adjacent process stages.
-  Indicates likely dependency but not explicitly documented.
-  Also medium when keyTerms overlap significantly (3+ shared technical terms) between
-  documents in adjacent stages, even if subsystem/module names differ.
+- high: Document IDs cross-reference between the two documents' referencedIds /
+  documentNumber fields (strongest evidence).
+- medium: Subsystem/module/productFamily names match AND keyTerms overlap meaningfully
+  (3+ shared technical terms), OR significant keyTerm overlap with shared technical
+  scope evident in summaries.
 - low: Only title/summary similarity suggests a relationship. Use sparingly.
 
-Analyzing relationships — use ALL available metadata fields:
-- referencedIds: Check for direct ID cross-references (strongest signal)
-- keyTerms: Compare technical keywords between source and candidates. Overlapping
-  function names, signal names, component names, or parameter names strongly indicate
-  a dependency even when no explicit document ID reference exists.
+Analyzing dependencies — use ALL available metadata fields:
+- referencedIds: Direct ID cross-references (strongest signal).
+- keyTerms: Compare technical keywords. Overlapping function names, signal names,
+  component names, or parameter names strongly indicate a dependency even when no
+  explicit document ID reference exists.
 - summary: Look for shared technical concepts, specifications, and scope overlap.
-  The summary contains detailed technical content including specific function names,
-  signal names, interfaces, and design decisions — use these for matching.
-- subsystem / moduleName / productFamily: Matching values reinforce relationship likelihood.
+- subsystem / moduleName / productFamily: Matching values reinforce dependency likelihood.
 
 Rules:
-- Only report relationships you are confident about
-- Do not fabricate relationships — if no meaningful dependency exists, return empty array
-- Each relationship must include a clear reason explaining WHY the dependency exists
-- The reason should explain what specific content creates the dependency
-  (e.g., "Source references requirement REQ-1023 defined in the target document")
+- Only report dependencies you are confident about.
+- Do not fabricate dependencies — if no meaningful shared content exists, return
+  hasDependency: false (or omit the entry).
+- Each entry must include a clear reason explaining WHAT specific content creates
+  the dependency (e.g., "Both documents discuss signal SIG_TORQUE_CMD and reference
+  REQ-1023").
+- Do NOT include direction language ("upstream"/"downstream"/"depends on") in reasons;
+  describe the shared content factually.
 
 NOTE: Do NOT evaluate 'refers_to' relationships. Those are handled separately
 via programmatic ID matching outside of this agent.
 
-Output format: Return a JSON array of relationship objects, each with:
-- sourceDocId, targetDocId, relationshipType (depends_on or depended_by), confidence, reason
-Return empty array [] if no relationships found.
+Output format: Return a JSON array of objects, each with:
+- targetDocId: the candidate document's docId
+- hasDependency: true | false
+- confidence: "high" | "medium" | "low" (only meaningful when hasDependency is true)
+- reason: explanation of WHAT shared content creates the dependency
+Return empty array [] if no dependencies are found.
 ```
 
-#### 依存方向の決定ルール
+#### 依存方向の決定ルール（バックエンドコードで決定）
+
+エージェントが `hasDependency: true` を返した候補について、`relationship_service._resolve_dependency_direction()` が以下のルールで方向を決定する:
 
 ```mermaid
 flowchart TD
-    START{ドキュメントAとBの関係は?} --> CHK1{異なるステージ?}
-    CHK1 -->|Yes| CHK2{AはBより後段ステージ?}
-    CHK2 -->|Yes| R1["A depends_on B<br/>(後段→前段)"]
-    CHK2 -->|No| R2["B depends_on A<br/>(後段→前段)"]
-    CHK1 -->|No 同一ステージ| CHK3{AはBより新しい?}
-    CHK3 -->|Yes| R3["A depends_on B<br/>(新→旧: 再利用)"]
-    CHK3 -->|No| R4["B depends_on A<br/>(新→旧: 再利用)"]
+    START{source と target の<br/>STAGE_ORDER index 比較} --> CHK1{source の index ><br/>target の index?}
+    CHK1 -->|Yes（source が後段）| R1["depends_on<br/>(source は target に依存)"]
+    CHK1 -->|No（source が前段）| CHK2{source の index <<br/>target の index?}
+    CHK2 -->|Yes| R2["depended_by<br/>(target が source に依存)"]
+    CHK2 -->|No 同一 stage| R3["関係を保存しない<br/>(決定論的方向が定まらない)"]
 
     style R1 fill:#e6f3ff
     style R2 fill:#e6f3ff
-    style R3 fill:#fff3e6
-    style R4 fill:#fff3e6
+    style R3 fill:#ffe6e6
 ```
+
+LLM が `relationshipType` を返した場合でもバックエンドはそれを無視し、stage 比較で決定された方向を採用する。LLM 出力と食い違う場合は warning ログに記録される。
 
 #### 信頼度 (confidence) の判定基準
 
@@ -565,7 +550,7 @@ sequenceDiagram
     OAI-->>AS: output_text
     AS->>AS: Markdown コードフェンス除去
     AS->>AS: json.loads でパース
-    AS-->>RS: list: [{sourceDocId, targetDocId, relationshipType, confidence, reason}]
+    AS-->>RS: list: [{targetDocId, hasDependency, confidence, reason}]
 ```
 
 #### 入出力例
@@ -602,18 +587,32 @@ sequenceDiagram
 }
 ```
 
-**出力** (JSON 配列):
+**出力** (JSON 配列 - エージェントからの出力):
 ```json
 [
   {
-    "sourceDocId": "doc-003",
     "targetDocId": "doc-001",
-    "relationshipType": "depends_on",
+    "hasDependency": true,
     "confidence": "high",
-    "reason": "ソースドキュメント(basic_design)はターゲットの要件仕様書(requirements_definition)のREQ-101を明示的に参照しており、ターゲットの要件に基づいて基本設計が作成されている。"
+    "reason": "両文書は REQ-101 を共有し、PWM制御・CANバス・過電流保護という技術スコープが重複している。"
   }
 ]
 ```
+
+**バックエンドでの全処理後** (Cosmos DB に保存される形):
+```json
+[
+  {
+    "targetDocId": "doc-001",
+    "relationshipType": "depends_on",
+    "confidence": "high",
+    "reason": "両文書は REQ-101 を共有し、PWM制御・CANバス・過電流保護という技術スコープが重複している。",
+    "extractedAt": "2026-03-15T14:45:00Z"
+  }
+]
+```
+
+> source(`basic_design`, idx=2) > target(`requirements_definition`, idx=1) なのでバックエンドが `relationshipType: "depends_on"` を付与する。
 
 ---
 
@@ -768,14 +767,19 @@ flowchart TD
 | `module_design` | `detailed_design` | `implementation` |
 | `implementation` | `module_design` | — |
 
-- **`depends_on` / `depended_by` 候補**: 隣接上流・下流工程 + 同工程の文書 → エージェントに送信
+- **`depends_on` / `depended_by` 候補**: 隣接上流・下流工程の文書のみ → エージェントに送信（同一工程の文書は決定論的な方向が定まらないため除外）
 - **`refers_to` / `referred_by` 候補**: 全分類済み文書から `referencedIds` と `documentNumber` のプログラム的照合
 
-### Step 4: 関係推定 (relationship-analyzer-agent)
+### Step 4: 依存有無の判定 (relationship-analyzer-agent)
 
-候補ペアをエージェントに一括送信し、`depends_on` / `depended_by` 関係を判定する。
+候補ペアをエージェントに一括送信し、各候補について **依存関係の有無 (`hasDependency`)、信頼度、根拠** を判定させる。**方向（depends_on / depended_by）はエージェントに判定させない** — バックエンドが stage 順から決定する。
 
 **送信メタデータ**: `docId`, `stage`, `title`, `summary`, `documentNumber`, `referencedIds`, `subsystem`, `moduleName`, `productFamily`, `keyTerms`
+
+**バックエンドでの後処理**:
+1. `hasDependency: false` のエントリは破棄
+2. `_resolve_dependency_direction(source_stage, target_stage)` で方向を決定（同一/不正 stage は破棄）
+3. source/target いずれかの `stageConfidence == "low"` なら依存 confidence を一段階格下げ
 
 ### Step 5: 結果を Cosmos DB に双方向保存
 
@@ -866,7 +870,9 @@ flowchart TD
 | フィールド | 型 | 説明 |
 |-----------|-----|------|
 | `documentClassification` | `object \| null` | 文書分類結果。未分類時は `null` |
-| `documentClassification.stage` | `string` | 6 段階の工程ステップ (enum) |
+| `documentClassification.stage` | `string` | 6 段階の工程ステップ (enum)。**依存方向決定の根拠** |
+| `documentClassification.stageReasoning` | `string` | stage を選んだ根拠 (1、3 文)。デバッグと記録追跡用 |
+| `documentClassification.stageConfidence` | `string` | `high` / `medium` / `low`。下流 confidence 格下げに使用 |
 | `documentClassification.title` | `string` | エージェントが抽出した文書タイトル |
 | `documentClassification.summary` | `string` | 5〜10 行の詳細な概要 (技術キーワード含む) |
 | `documentClassification.documentNumber` | `string \| null` | 文書番号 |

@@ -27,7 +27,7 @@ Customer / Market Requirements ─ ─ ─ ─ ─ ─ ─ ─ ─ Acceptance Te
 - **Teams/SharePoint Integration**: Directly manage and upload channel files
 - **AI Document Analysis**: Automatically analyze PDFs with Content Understanding
 - **Tacit Knowledge Extraction**: AI asks questions about missing information in design documents to accumulate engineer expertise
-- **Automatic Traceability**: AI automatically extracts and bidirectionally saves dependency (`depends_on`) and reference (`refers_to`) relationships between documents
+- **Automatic Traceability**: AI extracts content dependencies between documents; the dependency direction (`depends_on` / `depended_by`) is decided deterministically from each document's process stage, while explicit ID references are captured as `refers_to`. All relationships are saved bidirectionally.
 - **Graph Visualization**: Display channel-wide dependency graphs by stage from left (upstream) to right (downstream)
 - **MCP Server**: Semantic search and document retrieval via Model Context Protocol (Streamable HTTP)
 - **Multilingual Support**: English / Japanese UI switching
@@ -90,7 +90,7 @@ graph TB
 | Layer | Technology |
 |-------|-----------|
 | Frontend | JavaScript (MSAL.js v2.35.0, ES Modules) |
-| Backend | Python 3.10 / Flask |
+| Backend | Python 3.13 / Flask |
 | Database | Azure Cosmos DB (NoSQL, Serverless, RBAC-only) |
 | Document Analysis | Azure Content Understanding (Foundry Tools) |
 | AI Agents | Microsoft Foundry Agent Service (4 Prompt Agents) |
@@ -102,7 +102,7 @@ graph TB
 ## Prerequisites
 
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Python 3.10+](https://www.python.org/downloads/)
+- [Python 3.13+](https://www.python.org/downloads/)
 - Azure subscription
 - Microsoft Entra ID app registration (SPA + Web API)
 
@@ -141,8 +141,8 @@ This automatically provisions:
   - `question-generator-agent` — Follow-up question generation
   - `answer-analysis-agent` — Answer sufficiency evaluation
   - `doc-classifier-agent` — Document classification (6 process stages)
-  - `relationship-analyzer-agent` — Upstream/downstream dependency analysis
-- **Azure App Service** (Python 3.10, Linux)
+  - `relationship-analyzer-agent` — Detects content dependencies between documents (direction is decided in code from process-stage order)
+- **Azure App Service** (Python 3.13, Linux)
 - **Azure Functions** (Flex Consumption, MCP Server)
 - **RBAC role assignments** (Cosmos DB Data Contributor, Cognitive Services User)
 
@@ -322,7 +322,7 @@ az functionapp keys list --resource-group $rg --name $funcName --query "systemKe
 - **Teams/SharePoint 連携**: チャネルのファイルを直接管理・アップロード
 - **AI ドキュメント分析**: Content Understanding で PDF を自動解析
 - **暗黙知の抽出**: AI が設計文書の不足情報を質問し、エンジニアの知見を蓄積
-- **自動トレーサビリティ**: ドキュメント間の依存関係 (`depends_on`) と参照関係 (`refers_to`) を AI が自動抽出・双方向保存
+- **自動トレーサビリティ**: ドキュメント間の依存関係を AI が検出し、依存の方向 (`depends_on` / `depended_by`) は各文書の工程ステージ順からコードで決定論的に決定。明示的な ID 参照は `refers_to` として取得し、全て双方向保存される。
 - **グラフ可視化**: チャネル全体の依存関係を左（上流）→右（下流）のステージ別グラフで表示
 - **MCP サーバー**: Model Context Protocol（Streamable HTTP）によるセマンティック検索・ドキュメント取得
 - **多言語対応**: 英語 / 日本語 UI 切り替え
@@ -385,7 +385,7 @@ graph TB
 | レイヤー | テクノロジー |
 |----------|-------------|
 | フロントエンド | JavaScript (MSAL.js v2.35.0, ES Modules) |
-| バックエンド | Python 3.10 / Flask |
+| バックエンド | Python 3.13 / Flask |
 | データベース | Azure Cosmos DB (NoSQL, サーバーレス, RBAC のみ) |
 | ドキュメント解析 | Azure Content Understanding (Foundry Tools) |
 | AI エージェント | Microsoft Foundry Agent Service (4 つのプロンプトエージェント) |
@@ -397,7 +397,7 @@ graph TB
 ## 前提条件
 
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-- [Python 3.10 以上](https://www.python.org/downloads/)
+- [Python 3.13 以上](https://www.python.org/downloads/)
 - Azure サブスクリプション
 - Microsoft Entra ID アプリ登録（SPA + Web API）
 
@@ -436,8 +436,8 @@ azd up
   - `question-generator-agent` — フォローアップ質問の生成
   - `answer-analysis-agent` — 回答の十分性評価
   - `doc-classifier-agent` — ドキュメント分類（6 つのプロセスステージ）
-  - `relationship-analyzer-agent` — 上流/下流の依存関係分析
-- **Azure App Service**（Python 3.10, Linux）
+  - `relationship-analyzer-agent` — ドキュメント間のコンテンツ依存性を検出（方向は工程ステージ順からコードで決定論的に決定）
+- **Azure App Service**（Python 3.13, Linux）
 - **Azure Functions**（Flex Consumption, MCP サーバー）
 - **RBAC ロール割り当て**（Cosmos DB Data Contributor, Cognitive Services User）
 

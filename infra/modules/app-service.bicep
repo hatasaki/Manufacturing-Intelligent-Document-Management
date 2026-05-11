@@ -50,7 +50,7 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
     serverFarmId: appServicePlanId
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'PYTHON|3.10'
+      linuxFxVersion: 'PYTHON|3.13'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appCommandLine: 'gunicorn --bind=0.0.0.0 --timeout 600 app:app'
@@ -69,6 +69,9 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
         { name: 'WEBSITES_CONTAINER_START_TIME_LIMIT', value: '600' }
+        // Force Oryx to build with the same Python version as the runtime
+        { name: 'PYTHON_VERSION', value: '3.13' }
+        { name: 'ORYX_PYTHON_VERSION', value: '3.13' }
       ]
     }
   }

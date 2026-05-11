@@ -17,7 +17,7 @@ graph TB
         FE_CONFIG["config.js<br/>MSAL / API 設定"]
     end
 
-    subgraph "Azure App Service (Python 3.10 / Flask)"
+    subgraph "Azure App Service (Python 3.13 / Flask)"
         BE_APP["app.py<br/>Flask アプリケーション"]
         subgraph "Routes"
             AUTH_ROUTE["auth_routes.py<br/>GET /api/me"]
@@ -686,7 +686,7 @@ graph TB
 
         subgraph "Compute"
             ASP["App Service Plan<br/>Linux / B1 SKU"]
-            APP["App Service<br/>Python 3.10<br/>SystemAssigned Identity"]
+            APP["App Service<br/>Python 3.13<br/>SystemAssigned Identity"]
         end
 
         subgraph "Data"
