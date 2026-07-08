@@ -228,17 +228,17 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph プログラム的マッチング<br/>find_candidates 内
+    subgraph PROG["プログラム的マッチング<br/>find_candidates 内"]
         P1["documentNumber と<br/>referencedIds の<br/>直接照合"]
         P1 --> P2["refers_to / referred_by<br/>confidence: high"]
     end
 
-    subgraph AIエージェント<br/>relationship-analyzer-agent
+    subgraph AGENT["AIエージェント<br/>relationship-analyzer-agent"]
         A1["メタデータ比較<br/>referencedIds<br/>keyTerms 重複<br/>summary 類似性<br/>subsystem/module 一致"]
         A1 --> A2["hasDependency: true/false<br/>confidence: high/medium/low"]
     end
 
-    subgraph バックエンド<br/>_resolve_dependency_direction
+    subgraph BACKEND["バックエンド<br/>_resolve_dependency_direction"]
         D1["source.stage と<br/>target.stage を STAGE_ORDER で比較"]
         D1 --> D2["depends_on / depended_by を決定<br/>(同一 stage は破棄)"]
     end
@@ -248,8 +248,8 @@ flowchart LR
     A2 --> D1
     D2 --> MERGE
 
-    style プログラム的マッチング fill:#e8f5e9
-    style AIエージェント fill:#e3f2fd
+    style PROG fill:#e8f5e9
+    style AGENT fill:#e3f2fd
 ```
 
 | 側面 | プログラム的マッチング | AIエージェント |
@@ -258,7 +258,7 @@ flowchart LR
 | **判定方法** | `documentNumber` ∈ `referencedIds` の集合演算 | メタデータの意味的分析 |
 | **信頼度** | 常に `high`（明示的な参照） | `high` / `medium` / `low` |
 | **処理速度** | 即座（単純比較） | API 呼出し（数秒〜） |
-| **候補フィルタ** | 全ドキュメント対象 | 隣接/同一ステージのみ |
+| **候補フィルタ** | 全ドキュメント対象 | 隣接ステージのみ（同一ステージは除外） |
 
 ---
 
@@ -284,6 +284,8 @@ flowchart LR
    - **Rule B — DELIVERABLE TYPE WINS OVER TITLE**: 信号一覧・コード・シーケンス図等の実成果物タイプを優先
    - **Rule C — UPSTREAM DEFAULT FOR AMBIGUITY**: 隣接 2 ステージで甲乙つけがたい場合は **より上流** を選択（過剰な depends_on 生成を回避）
    - **Rule D — REFERENCE DENSITY CHECK**: `customer_requirements` 候補で内部参照 ID が多数ある場合は再考（最上流文書は内部参照が少ないはず）
+   - **Rule E — POLICY vs SPEC**: 「方針」レベルの高レベル記述（安全設計方針・セキュリティ設計方針・制御方式概要等）は `basic_design`、具体的な値・エラーコード・データ型を伴う仕様（エラー処理仕様・信号一覧等）は `detailed_design` / `module_design`
+   - **Rule F — ARTIFACT vs SPECIFICATION**: BOM・回路図・PCB データ・ソースコード・バイナリ・3D CAD・試作品等の成果物そのものは `implementation`、それらの設計方法・根拠を記述した文書（回路設計書等）は `detailed_design` / `module_design`
 3. **Self-consistency check (MANDATORY)** — 選択した stage と実際の成果物タイプ・参照密度が矛盾する場合は `stageConfidence` を下げる
 4. **Other extraction fields** — `summary`, `keyTerms` 等の抽出指示
 5. **Output format** — JSON のみ返却
@@ -745,9 +747,9 @@ flowchart TD
     C -->|No| SKIP
     C -->|Yes| D[ステージ・documentNumber・referencedIds を取得]
 
-    D --> E{ターゲットのステージが<br/>隣接ステージに含まれる?<br/>OR 同一ステージ?}
+    D --> E{ターゲットのステージが<br/>隣接ステージ（上流/下流）に含まれる?}
     E -->|Yes| F[agent_candidates に追加]
-    E -->|No| G[エージェント候補としては対象外]
+    E -->|No| G[エージェント候補としては対象外<br/>（同一ステージも除外）]
 
     D --> H{ターゲットの documentNumber が<br/>ソースの referencedIds に含まれる?}
     H -->|Yes| I["reference_matches に追加<br/>type=refers_to, confidence=high"]
@@ -1041,7 +1043,7 @@ Step 1. doc-classifier-agent で文書分類
   ↓ documentClassification を Cosmos DB に保存
 Step 2. 同一チャネルの既存文書 (documentClassification あり) を取得
   ↓
-Step 3. 比較候補のフィルタリング (隣接工程 + 同工程)
+Step 3. 比較候補のフィルタリング (隣接工程のみ、同一工程は除外)
   ↓ 候補が 0 件なら relationshipStatus: "completed", relationships: [] で終了
 Step 4. relationship-analyzer-agent で関係推定
   ↓
